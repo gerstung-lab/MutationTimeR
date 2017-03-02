@@ -1,6 +1,6 @@
 #' # Calculation of mutation copy numbers and timing parameters
 #' Minimal example
-#' source("ComputeMCN.R")
+#' source("/Users/mg14/Projects/PCAWG-11/code/MutationTime.R")
 #' vcf <- readVcf("final/final_consensus_12oct_passonly/snv_mnv/0040b1b6-b07a-4b6e-90ef-133523eaf412.consensus.20160830.somatic.snv_mnv.vcf.gz",genome="GRCh37")
 #' bb <- loadBB("dp/20161213_vanloo_wedge_consSNV_prelimConsCNAallStar/4_copynumber/0040b1b6-b07a-4b6e-90ef-133523eaf412_segments.txt.gz")
 #' clusters = read.table("dp/20161213_vanloo_wedge_consSNV_prelimConsCNAallStar/2_subclones/0040b1b6-b07a-4b6e-90ef-133523eaf412_subclonal_structure.txt.gz", header=TRUE, sep="\t")
@@ -14,6 +14,9 @@
 #' table(classifyMutations(MCN$D))
 #' # Timing parameters
 #' MCN$P[[1]]
+#' # Extract timing of segments
+#' bb$timing_param <- MCN$P
+#' bbToTime(bb)
 
 require(VariantAnnotation)
 require(VGAM)
@@ -235,7 +238,7 @@ defineMcnStates <- function(bb, clusters, purity, gender='female', isWgd= FALSE)
 		
 		cnStates[1:k,"s"] = as.numeric(factor(cfi, levels=cfi.s))[cnStates[1:k,"state"]]
 		
-		timing_param <- cbind(cnStates[whichStates,,drop=FALSE], cfi=cfi[cnStates[whichStates,"state"]], pi.s=pi.s[cnStates[whichStates,"s"]], P.m.sX=NA, power.s=NA, power.m.s = NA,
+		timing_param <- cbind(cnStates[whichStates,,drop=FALSE], cfi=cfi[cnStates[whichStates,"state"]], pi.s=pi.s[cnStates[whichStates,"s"]], P.m.sX=NA,P.m.sX.lo=NA, P.m.sX.up=NA, T.m.sX=NA, T.m.sX.lo=NA, T.m.sX.up=NA, power.s=NA, power.m.s = NA,
 				majCN=majcni[cnStates[whichStates,"state"]], minCN=mincni[cnStates[whichStates,"state"]], 
 				majDelta = majdelta[cnStates[whichStates,"state"]], minDelta = mindelta[cnStates[whichStates,"state"]], 
 				clonalFlag=clonalFlag[cnStates[whichStates,"state"]], subclonalGainFlag=subclonalGainFlag[cnStates[whichStates,"state"]], mixFlag=mixFlag[cnStates[whichStates,"state"]], majCNanc=majanc, minCNanc=minanc, majCNder=majder, minCNder=minder)
@@ -260,7 +263,7 @@ defineMcnStates <- function(bb, clusters, purity, gender='female', isWgd= FALSE)
 #' 
 #' @author mg14
 #' @export
-computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALSE, xmin=3, rho=0){
+computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALSE, xmin=3, rho=0, n.boot=200){
 	n <- nrow(vcf)
 	D <- DataFrame(MutCN=rep(NA,n), MutDeltaCN=rep(NA,n), MajCN=rep(NA,n), MinCN=rep(NA,n), MajDerCN=rep(NA,n), MinDerCN=rep(NA,n), CNF=rep(NA,n), CNID =as(vector("list", n),"List"), pMutCN=rep(NA,n), pGain=rep(NA,n),pSingle=rep(NA,n),pSub=rep(NA,n), pMutCNTail=rep(NA,n))	
 	P <- defineMcnStates(bb,clusters, purity, gender, isWgd)
@@ -288,8 +291,6 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 	clusters$proportion[which.max(clusters$proportion)] <- purity
 	
 	cloneFreq <- split(bb$clonal_frequency[subjectHits(overlaps)], queryHits(overlaps))
-	cnStates <- matrix(0, nrow=10000, ncol=6)
-	colnames(cnStates) <- c("state","m","f","n.m.s","pi.m.s","s")
 	
 	power.c <- rep(0, nrow(clusters))
 	
@@ -336,16 +337,32 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 						power.s <- rep(1,length(whichStates))
 					}
 					
+					mm <- function(x) {
+						x <- factor(x)
+						if(nlevels(x) > 1) t(model.matrix( ~ x + 0)) else matrix(1, ncol=length(x))
+					}
+					
 					# EM algorithm (mixture fitting) for pi
 					P.m.sX <- cnStates[whichStates,"pi.m.s"]
+					s.from.m <- mm(cnStates[whichStates,"s"]) # indicator matrix to map
 					for(em.it in 1:100){
 						P.xsm <- L * rep(pi.s[cnStates[whichStates,"s"]] * P.m.sX / power.m.s / power.s[cnStates[whichStates,"s"]], each=nrow(L)) # P(X,s,m)
 						P.sm.x <- P.xsm/rowSums(P.xsm) # P(s,m|Xi)
 						P.sm.X <- colMeans(P.sm.x) # P(s,m|X) / piState[cnStates[1:k,"state"]] / cnStates[1:k,"pi.m.s"]
 						if(em.it==100) break
-						P.s.X <- sapply(split(P.sm.X, cnStates[whichStates,"s"]), sum)
+						P.s.X <- s.from.m %*% P.sm.X 
 						P.m.sX <- P.sm.X / P.s.X[cnStates[whichStates,"s"]]
 					}
+					
+					toTime <- function(cnStates, P.m.sX, s.m) {
+						mAnc <- cnStates[,"m"] - cnStates[,"minDelta"] - cnStates[,"majDelta"]
+						mAnc.s <- factor(paste(mAnc, cnStates[,"s"], sep="."))
+						n <- (mAnc <= cnStates[,"majCNanc"]) + (mAnc <= cnStates[,"minCNanc"] )
+						mAnc.s.from.m <- mm(x = mAnc.s)# indicator matrix to map
+						return((mAnc.s.from.m[mAnc.s,] %*% P.m.sX) / (s.m[cnStates[,"s"],] %*% (P.m.sX * mAnc)) *  (cnStates[,"majCNanc"] + cnStates[,"minCNanc"]) / n)
+					}
+					
+					T.m.sX <- toTime(cnStates, P.m.sX, s.from.m) 
 					
 					if(globalIt==1){
 						p <- (sapply(split(power.sm * P.m.sX, cnStates[whichStates,"s"]), sum) * nrow(L)/sum(!is.na(h) & !is.na(altCount) &! is.na(tumDepth)))[s.to.c]
@@ -353,9 +370,35 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 							power.c <- power.c + p 
 					}
 					
+					# Bootstrapping for CIs
+					if(globalIt==2){
+						b.m.sX <- if(n.boot>0) sapply(1:n.boot, function(foo){
+									L <- rbind(L, rep(1e-3, each=ncol(L))) #add an uniformative row
+									L <- L[sample(1:nrow(L), replace=TRUE),,drop=FALSE]
+									P.m.sX <- cnStates[whichStates,"pi.m.s"]
+									for(em.it in 1:50){
+										P.xsm <- L * rep(pi.s[cnStates[whichStates,"s"]] * P.m.sX / power.m.s / power.s[cnStates[whichStates,"s"]], each=nrow(L)) # P(X,s,m)
+										P.sm.x <- P.xsm/rowSums(P.xsm) # P(s,m|Xi)
+										P.sm.X <- colMeans(P.sm.x) # P(s,m|X) / piState[cnStates[1:k,"state"]] / cnStates[1:k,"pi.m.s"]
+										P.s.X <- s.from.m %*% P.sm.X 
+										P.m.sX <- P.sm.X / P.s.X[cnStates[whichStates,"s"]]
+									}
+									return(P.m.sX)
+								}) else NA
+						try({
+									CI.m.sX <- apply(b.m.sX, 1, quantile, c(0.025, 0.975))
+									cnStates[,"P.m.sX.lo"] <- CI.m.sX[1,] 
+									cnStates[,"P.m.sX.up"] <- CI.m.sX[2,]
+									B.m.sX <- toTime(cnStates = cnStates, P.m.sX = b.m.sX, s.m = s.from.m)
+									C.m.sX <- apply(B.m.sX, 1, quantile, c(0.025, 0.975))
+									cnStates[,"T.m.sX.lo"] <- C.m.sX[1,] 
+									cnStates[,"T.m.sX.up"] <- C.m.sX[2,]
+								})
+					}
 					
 					P.sm.x[apply(is.na(P.sm.x)|is.nan(P.sm.x),1,any),] <- NA
 					cnStates[,"P.m.sX"] <- P.m.sX
+					cnStates[,"T.m.sX"] <- T.m.sX
 					cnStates[,"power.s"] <- power.s[cnStates[whichStates,"s"]]
 					cnStates[,"power.m.s"] <- power.m.s
 					
@@ -451,4 +494,52 @@ loadBB <- function(file){
 	GRanges(tab$chromosome, IRanges(tab$start, tab$end), strand="*", tab[-3:-1])
 }
 
+pGainToTime <- function(vcf){
+	P <- matrix(NA, nrow=nrow(vcf), ncol=4, dimnames=list(NULL, c("pEarly","pLate","pClonal[NA]","pSub")))
+	P[,c("pEarly","pClonal[NA]","pSub")] <- as.matrix(info(vcf)[,c("pGain","pSingle","pSub")])
+	biAllelicGain <- (info(vcf)$MajCN > 1 & (info(vcf)$MinCN > 1 | info(vcf)$MinCN == 0) & ! ((info(vcf)$MajCN == 1 | info(vcf)$MinCN == 1) & abs(info(vcf)$MutCN - info(vcf)$MutDeltaCN -1) <= 0.0001))
+	w <- which(biAllelicGain)
+	P[w, "pLate"] <- P[w, "pClonal[NA]"]
+	P[w, "pClonal[NA]"] <- 0
+	P[which(!biAllelicGain),"pLate"] <- 0
+	return(P)
+}
 
+piToTime <- function(timing_param, type=c("Mono-allelic Gain","CN-LOH", "Bi-allelic Gain (WGD)")){
+	type <- match.arg(type)
+	w <- timing_param[,"s"]==1 &! timing_param[,"mixFlag"] 
+	n <- sum(w)
+	t <- timing_param[n,c("T.m.sX","T.m.sX.lo","T.m.sX.up")]
+	names(t) <- c("","lo","up")
+	t[2] <- min(t[1],t[2])
+	t[3] <- max(t[1],t[3])
+	return(pmin(t,1))
+}
+
+bbToTime <- function(bb, timing_param = bb$timing_param, pseudo.count=5){
+	sub <- duplicated(bb) 
+	covrg <- countQueryHits(findOverlaps(bb, bb)) 
+	maj <- sapply(timing_param, function(x) if(length(x) > 0) x[1, "majCNanc"] else NA) #bb$major_cn
+	min <- sapply(timing_param, function(x) if(length(x) > 0) x[1, "minCNanc"] else NA) #bb$minor_cn
+	type <- sapply(seq_along(bb), function(i){
+				if(maj[i] < 2 | is.na(maj[i]) | sub[i] | (maj[i] > 2 & min[i] >= 2)) return(NA)
+				type <- if(min[i]==1){ "Mono-allelic Gain" 
+						}else if(min[i]==0){"CN-LOH"}
+						else "Bi-allelic Gain (WGD)"
+				return(type)
+			})
+	time <- t(sapply(seq_along(bb), function(i){
+						if(sub[i] | is.na(type[i])) return(c(NA,NA,NA)) 
+						else piToTime(timing_param[[i]],type[i])
+					}))
+	
+	res <- data.frame(type=factor(type, levels=c("Mono-allelic Gain","CN-LOH","Bi-allelic Gain (WGD)")), time=time)
+	colnames(res) <- c("type","time","time.lo","time.up")
+	
+	# posthoc adjustment of CI's
+	res$time.up <- (pseudo.count + bb$n.snv_mnv * res$time.up)/(pseudo.count + bb$n.snv_mnv)
+	res$time.lo <- (0 + bb$n.snv_mnv * res$time.lo)/(pseudo.count + bb$n.snv_mnv)
+	res$time.star <- factor((covrg == 1) + (min < 2 & maj <= 2 | min==2 & maj==2) * (covrg == 1), levels=0:2, labels = c("*","**","***"))
+	res$time.star[is.na(res$time)] <- NA
+	return(res)
+}

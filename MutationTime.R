@@ -267,7 +267,7 @@ defineMcnStates <- function(bb, clusters, purity, gender='female', isWgd= FALSE)
 #' @export
 computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALSE, xmin=3, rho=0, n.boot=200){
 	n <- nrow(vcf)
-	D <- DataFrame(MutCN=rep(NA,n), MutDeltaCN=rep(NA,n), MajCN=rep(NA,n), MinCN=rep(NA,n), MajDerCN=rep(NA,n), MinDerCN=rep(NA,n), CNF=rep(NA,n), CNID =as(vector("list", n),"List"), pMutCN=rep(NA,n), pGain=rep(NA,n),pSingle=rep(NA,n),pSub=rep(NA,n), pMutCNTail=rep(NA,n))	
+	D <- DataFrame(MutCN=rep(NA,n), MutDeltaCN=rep(NA,n), MajCN=rep(NA,n), MinCN=rep(NA,n), MajDerCN=rep(NA,n), MinDerCN=rep(NA,n), CNF=rep(NA,n), CNID =as(vector("list", n),"List"), pMutCN=rep(NA,n), pGain=rep(NA,n),pSingle=rep(NA,n),pSub=rep(NA,n), pAllSubclones=as(vector(mode="list",n),"List"), pMutCNTail=rep(NA,n))	
 	P <- defineMcnStates(bb,clusters, purity, gender, isWgd)
 	if(n==0)
 		return(list(D=D, P=P))
@@ -395,7 +395,7 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 									C.m.sX <- apply(B.m.sX, 1, quantile, c(0.025, 0.975))
 									cnStates[,"T.m.sX.lo"] <- C.m.sX[1,] 
 									cnStates[,"T.m.sX.up"] <- C.m.sX[2,]
-								})
+								}, silent=T)
 					}
 					
 					P.sm.x[apply(is.na(P.sm.x)|is.nan(P.sm.x),1,any),] <- NA
@@ -423,6 +423,8 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 				D[hh, "pGain"] <- rowSums(P.sm.x[, cnStates[,"clonalFlag"] & cnStates[,"m"] > 1.00001 + cnStates[,"majDelta"] + cnStates[,"minDelta"], drop=FALSE])
 				#D[hh, "pSingle"] <- rowSums(P.sm.x[, cnStates[1:k,"state"] %in% which(clonalFlag) & cnStates[1:k,"m"]<=1, drop=FALSE])
 				D[hh, "pSingle"] <-  1 - D[hh, "pSub"] - D[hh, "pGain"]			
+
+				D[hh, "pAllSubclones"] <- as(DataFrame(t(P.sm.x[, !cnStates[,"clonalFlag"], drop=FALSE])),"List")
 				
 				D[hh,"MutCN"]  <- cnStates[w,"m"]
 				D[hh,"MutDeltaCN"]  <- cnStates[w,"majDelta"] + cnStates[w,"minDelta"]
@@ -434,6 +436,8 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 				D[hh,"CNF"]  <- cnStates[w,"cfi"]
 				D[hh,"pMutCN"] <- sapply(seq_along(w), function(i) P.sm.x[i,w[i]])
 				D[hh,"pMutCNTail"] <- sapply(seq_along(w), function(i) pMutCNTail[i,w[i]])
+				D[hh,"altCount"] <- altCount[hh]
+				D[hh,"wtCount"] <- tumDepth[hh] - altCount[hh]
 			}		
 		}		
 		if(any(is.na(power.c) | power.c==0)) break # Cancel 2nd iteration 
@@ -491,9 +495,55 @@ posteriorMutCN <- function(x,n, cnStates, xmin=3, rho=0.01){
 }
 
 
-loadBB <- function(file){
-	tab <- read.table(file, header=TRUE, sep='\t')
-	GRanges(tab$chromosome, IRanges(tab$start, tab$end), strand="*", tab[-3:-1])
+loadBB <- function(file, round_subclones=F, remove_subclones=F) {
+  if (round_subclones & remove_subclones) {
+    print("When supplying both rounding and removing to loadBB subclones are removed")
+  }
+
+
+        tab <- read.table(file, header=TRUE, sep='\t')
+        r = GRanges(tab$chromosome, IRanges(tab$start, tab$end), strand="*", tab[-3:-1])
+
+        if (remove_subclones) {
+          o = findOverlaps(r, r)
+          c = countSubjectHits(o)
+          subclonal_segments = which(c > 1)
+          r = r[-subclonal_segments,]
+
+        } else if (round_subclones) {
+
+          # Check for the ccf column
+          if (!"ccf" %in% colnames(tab)) {
+            print("No CCF column in segments supplied, stopping")
+            q(save="no", status=1)
+          }
+
+          # Round subclonal copy number by taking the maximum CCF state
+          o = findOverlaps(r, r)
+          c = countSubjectHits(o)
+
+          merged_subclonal = data.frame()
+          if (any(c > 1)) {
+            subclonal_segments = unique(queryHits(o)[which(c > 1)])
+            for (i in subclonal_segments) {
+              tab_curr = tab[subjectHits(o)[queryHits(o)==i],]
+              tab_select = tab_curr[which.max(tab_curr$ccf),]
+              tab_select$ccf = 1
+              merged_subclonal = rbind(merged_subclonal, tab_select)
+            }
+          }
+          subclonal_segments = subjectHits(o)[which(c > 1)]
+          tab_merged = rbind(tab[c==1,], merged_subclonal)
+          r = sort(GRanges(tab_merged$chromosome, IRanges(tab_merged$start, tab_merged$end), strand="*", tab_merged[-3:-1]))
+        }
+
+        if (length(r)==0) {
+          print("No copy number left after filtering, exit now")
+          q(save="no", status=0)
+        }
+
+
+        return(r)
 }
 
 pGainToTime <- function(vcf){

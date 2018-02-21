@@ -17,6 +17,8 @@
 #' # Extract timing of segments
 #' bb$timing_param <- MCN$P
 #' bbToTime(bb)
+#' PRE: Purity must be equal to the main clone, otherwise spurious results can be generated
+#' PRE: CNV segments don't have to overlap, otherwise an error is generated: "Error in if (!mixFlag[j]) { : missing value where TRUE/FALSE needed"
 
 require(VariantAnnotation)
 require(VGAM)
@@ -348,7 +350,7 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 					for(em.it in 1:100){
 						P.xsm <- L * rep(pi.s[cnStates[whichStates,"s"]] * P.m.sX / power.m.s / power.s[cnStates[whichStates,"s"]], each=nrow(L)) # P(X,s,m)
 						P.sm.x <- P.xsm/rowSums(P.xsm) # P(s,m|Xi)
-						P.sm.X <- colMeans(P.sm.x) # P(s,m|X) / piState[cnStates[1:k,"state"]] / cnStates[1:k,"pi.m.s"]
+						P.sm.X <- pmax(.Machine$double.xmin,colMeans(P.sm.x)) # P(s,m|X) / piState[cnStates[1:k,"state"]] / cnStates[1:k,"pi.m.s"]
 						if(em.it==100) break
 						P.s.X <- s.from.m %*% P.sm.X 
 						P.m.sX <- P.sm.X / P.s.X[cnStates[whichStates,"s"]]

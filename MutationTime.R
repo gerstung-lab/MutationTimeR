@@ -367,7 +367,7 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 					T.m.sX <- toTime(cnStates, P.m.sX, s.from.m) 
 					
 					if(globalIt==1){
-						p <- (sapply(split(power.sm * P.m.sX, cnStates[whichStates,"s"]), sum) * nrow(L)/sum(!is.na(h) & !is.na(altCount) &! is.na(tumDepth)))[s.to.c]
+						p <- (sapply(split(power.sm * P.m.sX, cnStates[whichStates,"s"]), sum) * nrow(L))[s.to.c]
 						if(!any(is.na(p) | is.nan(p)))
 							power.c <- power.c + p 
 					}
@@ -375,27 +375,27 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 					# Bootstrapping for CIs
 					if(globalIt==2){
 						b.m.sX <- if(n.boot>0) sapply(1:n.boot, function(foo){
-									L <- rbind(L, rep(1e-3, each=ncol(L))) #add an uniformative row
-									L <- L[sample(1:nrow(L), replace=TRUE),,drop=FALSE]
-									P.m.sX <- cnStates[whichStates,"pi.m.s"]
-									for(em.it in 1:50){
-										P.xsm <- L * rep(pi.s[cnStates[whichStates,"s"]] * P.m.sX / power.m.s / power.s[cnStates[whichStates,"s"]], each=nrow(L)) # P(X,s,m)
-										P.sm.x <- P.xsm/rowSums(P.xsm) # P(s,m|Xi)
-										P.sm.X <- colMeans(P.sm.x) # P(s,m|X) / piState[cnStates[1:k,"state"]] / cnStates[1:k,"pi.m.s"]
-										P.s.X <- s.from.m %*% P.sm.X 
-										P.m.sX <- P.sm.X / P.s.X[cnStates[whichStates,"s"]]
-									}
-									return(P.m.sX)
-								}) else NA
-						try({
-									CI.m.sX <- apply(b.m.sX, 1, quantile, c(0.025, 0.975))
-									cnStates[,"P.m.sX.lo"] <- CI.m.sX[1,] 
-									cnStates[,"P.m.sX.up"] <- CI.m.sX[2,]
-									B.m.sX <- toTime(cnStates = cnStates, P.m.sX = b.m.sX, s.m = s.from.m)
-									C.m.sX <- apply(B.m.sX, 1, quantile, c(0.025, 0.975))
-									cnStates[,"T.m.sX.lo"] <- C.m.sX[1,] 
-									cnStates[,"T.m.sX.up"] <- C.m.sX[2,]
-								})
+												L <- rbind(L, rep(1e-3, each=ncol(L))) #add an uniformative row
+												L <- L[sample(1:nrow(L), replace=TRUE),,drop=FALSE]
+												P.m.sX <- cnStates[whichStates,"pi.m.s"]
+												for(em.it in 1:50){
+													P.xsm <- L * rep(pi.s[cnStates[whichStates,"s"]] * P.m.sX / power.m.s / power.s[cnStates[whichStates,"s"]], each=nrow(L)) # P(X,s,m)
+													P.sm.x <- P.xsm/rowSums(P.xsm) # P(s,m|Xi)
+													P.sm.X <- colMeans(P.sm.x) # P(s,m|X) / piState[cnStates[1:k,"state"]] / cnStates[1:k,"pi.m.s"]
+													P.s.X <- s.from.m %*% P.sm.X 
+													P.m.sX <- P.sm.X / P.s.X[cnStates[whichStates,"s"]]
+												}
+												return(P.m.sX)
+											}) else NA
+						if(n.boot>0) try({
+										CI.m.sX <- apply(b.m.sX, 1, quantile, c(0.025, 0.975))
+										cnStates[,"P.m.sX.lo"] <- CI.m.sX[1,] 
+										cnStates[,"P.m.sX.up"] <- CI.m.sX[2,]
+										B.m.sX <- toTime(cnStates = cnStates, P.m.sX = b.m.sX, s.m = s.from.m)
+										C.m.sX <- apply(B.m.sX, 1, quantile, c(0.025, 0.975))
+										cnStates[,"T.m.sX.lo"] <- C.m.sX[1,] 
+										cnStates[,"T.m.sX.up"] <- C.m.sX[2,]
+									}, silent=TRUE)
 					}
 					
 					P.sm.x[apply(is.na(P.sm.x)|is.nan(P.sm.x),1,any),] <- NA
@@ -435,7 +435,14 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 				D[hh,"pMutCN"] <- sapply(seq_along(w), function(i) P.sm.x[i,w[i]])
 				D[hh,"pMutCNTail"] <- sapply(seq_along(w), function(i) pMutCNTail[i,w[i]])
 			}		
-		}		
+		}
+		if(globalIt==1){
+			power.c <- power.c / sum(!is.na(D[,"pSub"]))
+			if(any(power.c > 1)) {
+				warning("Calculated power > 1, rounding down.")
+				power.c <- pmin(1, power.c)
+			}
+		}
 		if(any(is.na(power.c) | power.c==0)) break # Cancel 2nd iteration 
 	}
 	return(list(D=D,P=P, power.c=power.c))

@@ -438,12 +438,15 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 		}
 		if(globalIt==1){
 			power.c <- power.c / sum(!is.na(D[,"pSub"]))
+			if(any(is.na(power.c) | power.c==0)) {
+				break # Cancel 2nd iteration
+				warning("Power calculation yielded NA, aborting.")
+			}
 			if(any(power.c > 1)) {
 				warning("Calculated power > 1, rounding down.")
 				power.c <- pmin(1, power.c)
 			}
 		}
-		if(any(is.na(power.c) | power.c==0)) break # Cancel 2nd iteration 
 	}
 	return(list(D=D,P=P, power.c=power.c))
 }

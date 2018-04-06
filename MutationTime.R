@@ -555,3 +555,30 @@ bbToTime <- function(bb, timing_param = bb$timing_param, pseudo.count=5){
 	res$time.star[is.na(res$time)] <- NA
 	return(res)
 }
+
+simulateMutations <- function(bb, purity=max(bb$clonal_frequency, na.rm=TRUE),  n=40, rho=0.01, xmin=3){
+	g <- (averagePloidy(bb)*purity + 2*(1-purity))
+	V <- list(VRanges())#VRanges()
+	for(i in which(!duplicated(bb)))
+		if(bb$n.snv_mnv[i]>1 & !is.null( bb$timing_param[[i]]))try({
+						cnStates <- bb$timing_param[[i]]
+						p <- cnStates[,"pi.s"]* if(!any(is.na(cnStates[,"P.m.sX"]))) cnStates[,"P.m.sX"] else cnStates[,"pi.m.s"]
+						pwr <- cnStates[,"power.m.s"]#(cnStates[,"power.s"] * cnStates[,"power.m.s"])
+						s <- sample(1:nrow(cnStates), size=pmax(1,ceiling(bb$n.snv_mnv[i] * (p %*% (1/pwr)))), prob=p, replace=TRUE)
+						f <- cnStates[s,"f"]
+						mu.c <- (bb$total_cn[i]*purity + 2*(1-purity))/g * n
+						c <- rnbinom(length(f), size=1/rho, mu=mu.c)
+						x <- rbetabinom(n=length(f), size=c, prob=f, rho=rho)
+						pos <- round(runif(length(f), min=start(bb)[i], max=end(bb)[i]))
+						w <- which(x>=xmin)
+						V[[i]] <- VRanges(seqnames=seqnames(bb)[i], IRanges(pos, width=1), ref="N", alt="A", totalDepth=c, altDepth=x)[w]
+					})
+	V <- do.call("c", V[!sapply(V, is.null)])
+	sampleNames(V) <- "SAMPLE"
+	v <- as(V, "VCF")
+	exptData(v)$header@header$INFO <- rbind(header(v)@header$INFO,info(header(finalSnv[[1]]))[c("t_ref_count","t_alt_count"),])
+	info(v)$t_alt_count <- altDepth(V)
+	info(v)$t_ref_count <- totalDepth(V) - altDepth(V)
+	return(v)
+}
+

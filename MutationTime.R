@@ -576,7 +576,7 @@ simulateMutations <- function(bb, purity=max(bb$clonal_frequency, na.rm=TRUE),  
 	V <- do.call("c", V[!sapply(V, is.null)])
 	sampleNames(V) <- "SAMPLE"
 	v <- as(V, "VCF")
-	exptData(v)$header@header$INFO <- rbind(header(v)@header$INFO,info(header(finalSnv[[1]]))[c("t_ref_count","t_alt_count"),])
+	info(header(v)) <- rbind(info(header(v)),info(header(finalSnv[[1]]))[c("t_ref_count","t_alt_count"),])
 	info(v)$t_alt_count <- altDepth(V)
 	info(v)$t_ref_count <- totalDepth(V) - altDepth(V)
 	return(v)

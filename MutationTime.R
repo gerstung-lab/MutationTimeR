@@ -324,10 +324,10 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 					
 					
 					# Likelihood
-					L <- matrix(sapply(pmin(cnStates[whichStates,"f"],1), function(pp) dtrbetabinom(altCount[hh],tumDepth[hh],pp, rho=rho, xmin=pmin(altCount[hh],0)) + .Machine$double.eps), ncol=length(whichStates))
+					L <- matrix(sapply(pmin(cnStates[whichStates,"f"],1), function(pp) dtrbetabinom(altCount[hh],tumDepth[hh], ifelse(pp==1, 1-.Machine$double.eps, pp), rho=rho, xmin=pmin(altCount[hh],0)) + .Machine$double.eps), ncol=length(whichStates))
 					
 					# Power
-					power.sm <- colMeans(matrix(sapply(pmin(cnStates[whichStates,"f"],1), function(pp) 1-ptrbetabinom(pmin(altCount[hh],xmin),tumDepth[hh],pp, rho=rho, xmin=0)), ncol=length(whichStates)), na.rm=TRUE)
+					power.sm <- colMeans(matrix(sapply(pmin(cnStates[whichStates,"f"],1), function(pp) 1-ptrbetabinom(pmin(altCount[hh],xmin),tumDepth[hh], ifelse(pp==1, 1-.Machine$double.eps, pp), rho=rho, xmin=0)), ncol=length(whichStates)), na.rm=TRUE)
 					if(globalIt==2){
 						P.m.sX <- P[[h[i]]][,"P.m.sX"]
 						power.s <- sapply(split(power.sm * P.m.sX, cnStates[whichStates,"s"]), sum) # Power for state
@@ -411,7 +411,7 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 				}
 				
 				# Tail probs
-				pMutCNTail <- matrix(sapply(pmin(cnStates[,"f"],1), function(pp) ptrbetabinom(altCount[hh],tumDepth[hh],pp, rho=rho, xmin=pmin(altCount[hh],xmin))), ncol=nrow(cnStates)) #%*% c(pi.s[cnStates[whichStates,"state"]] * P.m.sX)				
+				pMutCNTail <- matrix(sapply(pmin(cnStates[,"f"],1), function(pp) ptrbetabinom(altCount[hh],tumDepth[hh], ifelse(pp==1, 1-.Machine$double.eps, pp), rho=rho, xmin=pmin(altCount[hh],xmin))), ncol=nrow(cnStates)) #%*% c(pi.s[cnStates[whichStates,"state"]] * P.m.sX)				
 				
 				P[[h[i]]] <- cnStates
 				if(H[i] != h[i]) P[[H[[i]]]] <- P[[h[i]]]

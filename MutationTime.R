@@ -458,8 +458,8 @@ mcnHeader <- function() {
 }
 
 addMutCn <- function(vcf, bb=allBB[[meta(header(vcf))["ID",]]], clusters=allClusters[[meta(header(vcf))["ID",]]]){
-	i = header(vcf)@header$INFO
-	exptData(vcf)$header@header$INFO <- rbind(i, mcnHeader())
+	i = info(header(vcf))
+	info(header(vcf)) <- rbind(i, mcnHeader())
 	info(vcf) <- cbind(info(vcf), computeMutCn(vcf, bb, clusters)$D)
 	return(vcf)
 }

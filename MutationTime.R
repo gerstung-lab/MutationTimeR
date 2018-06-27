@@ -519,13 +519,51 @@ pGainToTime <- function(vcf){
 
 piToTime <- function(timing_param, type=c("Mono-allelic Gain","CN-LOH", "Bi-allelic Gain (WGD)")){
 	type <- match.arg(type)
-	w <- timing_param[,"s"]==1 &! timing_param[,"mixFlag"] 
-	n <- sum(w)
-	t <- timing_param[n,c("T.m.sX","T.m.sX.lo","T.m.sX.up")]
-	names(t) <- c("","lo","up")
-	t[2] <- min(t[1],t[2])
-	t[3] <- max(t[1],t[3])
-	return(pmin(t,1))
+	evo <- NA
+	w <- timing_param[,"s"]==1 &! timing_param[,"mixFlag"] ## Clonal states, not mixture (CN subclonal)
+	M <- sum(w) ## Max multiplicity = Major copy number
+	m <- sum(w & timing_param[,"n.m.s"]==2) ## Minor CN
+	#evo <- paste0("1:1", paste0(2,":",m), if(M>2) paste0(3,":",) else "", collapse="->")
+	t <- timing_param[(M:(M-1)),c("T.m.sX","T.m.sX.lo","T.m.sX.up"), drop=FALSE] ## Timing M and M-1
+	if(nrow(t)==1) t <- rbind(t, NA)
+	if(!any(is.na(t))){
+		if(M==4) {
+			if(timing_param[M-1,"P.m.sX"] < 0.02){ ## No MCN 3
+				if(type=="CN-LOH"){ ## Hotfix for 4+0, treated at 1:1 -> 2:0 -> 4:0
+					t <- timing_param[c(M,M-2),c("T.m.sX","T.m.sX.lo","T.m.sX.up"), drop=FALSE]*c(1,0.5) ## Timing M and M-2
+					evo <- "1:1->2:0->4:0"
+				}
+				else if(type=="Bi-allelic Gain (WGD)"){			
+					if(m==2) {## Hotfix for 4+2 regions, treated at 1:1 -> 2:1 -> 4:2
+						t <- timing_param[c(M,M-2),c("T.m.sX","T.m.sX.lo","T.m.sX.up"), drop=FALSE]*c(1,0.5) ## Timing M and M-2
+						t[2,] <- pmax(0, 2*t[2,] - t[1,])/3
+						evo <- "1:1->2:1->4:2"
+					} else if(m==4) {## Hotfix for 4+4 regions, treated at 1:1 -> 2:2 -> 4:4
+						t <- timing_param[c(M,M-2),c("T.m.sX","T.m.sX.lo","T.m.sX.up"), drop=FALSE]*c(1,0.5) ## Timing M and M-2
+						evo <- "1:1->2:2->4:4"
+					}
+				}			
+			} else if(type=="Bi-allelic Gain (WGD)"){ ## Can't uniquely time second event
+				t[2,] <- NA
+			} 
+			if(m==3) {
+				t[2,] <- NA ## Don'time secondary 4+3 for now, needs more work
+			} 
+		} else {
+			if(M==3 & type=="Bi-allelic Gain (WGD)") {## Hotfix for 3+2 regions, treated at 1:1 -> 2:2 -> 3:2
+				t[2,] <- pmax(0,2*t[2,] - t[1,])
+				evo <- "1:1->2:2->3:2"
+			}
+		}
+	}
+	colnames(t) <- c("","lo","up")
+	t[,2] <- pmin(t[,1],t[,2])
+	t[,3] <- pmax(t[,1],t[,3])
+	t <- pmin(apply(t,2,cumsum),1) ## Times are actually deltas
+	if(M < 3) t[2,] <- NA
+	t[is.infinite(t)] <- NA
+	rownames(t) <- c("",".2nd")
+	return(c(t[1,],`.2nd`=t[2,])) ## Linearise
 }
 
 bbToTime <- function(bb, timing_param = bb$timing_param, pseudo.count=5){
@@ -534,24 +572,27 @@ bbToTime <- function(bb, timing_param = bb$timing_param, pseudo.count=5){
 	maj <- sapply(timing_param, function(x) if(length(x) > 0) x[1, "majCNanc"] else NA) #bb$major_cn
 	min <- sapply(timing_param, function(x) if(length(x) > 0) x[1, "minCNanc"] else NA) #bb$minor_cn
 	type <- sapply(seq_along(bb), function(i){
-				if(maj[i] < 2 | is.na(maj[i]) | sub[i] | (maj[i] > 2 & min[i] >= 2)) return(NA)
+				if(maj[i] < 2 | is.na(maj[i]) | sub[i] | (maj[i] > 4 & min[i] >= 2)) return(NA)
 				type <- if(min[i]==1){ "Mono-allelic Gain" 
 						}else if(min[i]==0){"CN-LOH"}
 						else "Bi-allelic Gain (WGD)"
 				return(type)
 			})
 	time <- t(sapply(seq_along(bb), function(i){
-						if(sub[i] | is.na(type[i])) return(c(NA,NA,NA)) 
+						if(sub[i] | is.na(type[i])) return(rep(NA,6)) 
 						else piToTime(timing_param[[i]],type[i])
 					}))
 	
 	res <- data.frame(type=factor(type, levels=c("Mono-allelic Gain","CN-LOH","Bi-allelic Gain (WGD)")), time=time)
-	colnames(res) <- c("type","time","time.lo","time.up")
+	colnames(res) <- c("type","time","time.lo","time.up","time.2nd","time.2nd.lo","time.2nd.up")
 	
 	# posthoc adjustment of CI's
 	res$time.up <- (pseudo.count + bb$n.snv_mnv * res$time.up)/(pseudo.count + bb$n.snv_mnv)
 	res$time.lo <- (0 + bb$n.snv_mnv * res$time.lo)/(pseudo.count + bb$n.snv_mnv)
-	res$time.star <- factor((covrg == 1) + (min < 2 & maj <= 2 | min==2 & maj==2) * (covrg == 1), levels=0:2, labels = c("*","**","***"))
+	res$time.2nd.up <- (pseudo.count + bb$n.snv_mnv * res$time.2nd.up)/(pseudo.count + bb$n.snv_mnv)
+	res$time.2nd.lo <- (0 + bb$n.snv_mnv * res$time.2nd.lo)/(pseudo.count + bb$n.snv_mnv)
+	
+	res$time.star <- factor((covrg == 1) + (min < 2 & maj <= 2 | min==2 & maj==2) * (covrg == 1), levels=0:2, labels = c("*","**","***")) ## ***: 2+0, 2+1, 2+2; **: 2<n+1, {3,4}+2; *: subclonal gains
 	res$time.star[is.na(res$time)] <- NA
 	return(res)
 }

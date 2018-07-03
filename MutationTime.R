@@ -535,8 +535,8 @@ piToTime <- function(timing_param, type=c("Mono-allelic Gain","CN-LOH", "Bi-alle
 				}
 				else if(type=="Bi-allelic Gain (WGD)"){			
 					if(m==2) {## Hotfix for 4+2 regions, treated at 1:1 -> 2:1 -> 4:2
-						t <- timing_param[c(M,M-2),c("T.m.sX","T.m.sX.lo","T.m.sX.up"), drop=FALSE]*c(1,0.5) ## Timing M and M-2
-						t[2,] <- pmax(0, 2*t[2,] - t[1,])/3
+						t <- timing_param[c(M,M-2),c("T.m.sX","T.m.sX.lo","T.m.sX.up"), drop=FALSE] ## Timing M and M-2
+						t[2,] <- pmax(0,2*t[2,] - t[1,])/3
 						evo <- "1:1->2:1->4:2"
 					} else if(m==4) {## Hotfix for 4+4 regions, treated at 1:1 -> 2:2 -> 4:4
 						t <- timing_param[c(M,M-2),c("T.m.sX","T.m.sX.lo","T.m.sX.up"), drop=FALSE]*c(1,0.5) ## Timing M and M-2

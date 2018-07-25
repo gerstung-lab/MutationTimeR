@@ -1,33 +1,6 @@
-#' # Calculation of mutation copy numbers and timing parameters
-#' Minimal example
-#' source("/Users/mg14/Projects/PCAWG-11/code/MutationTime.R")
-#' vcf <- readVcf("final/final_consensus_12oct_passonly/snv_mnv/0040b1b6-b07a-4b6e-90ef-133523eaf412.consensus.20160830.somatic.snv_mnv.vcf.gz",genome="GRCh37")
-#' bb <- loadBB("dp/20161213_vanloo_wedge_consSNV_prelimConsCNAallStar/4_copynumber/0040b1b6-b07a-4b6e-90ef-133523eaf412_segments.txt.gz")
-#' clusters = read.table("dp/20161213_vanloo_wedge_consSNV_prelimConsCNAallStar/2_subclones/0040b1b6-b07a-4b6e-90ef-133523eaf412_subclonal_structure.txt.gz", header=TRUE, sep="\t")
-#' purityPloidy <- read.table("dp/20161213_vanloo_wedge_consSNV_prelimConsCNAallStar/1_purity_ploidy/purity_ploidy.txt, header=TRUE, sep="\t")
-#' purity <- purityPloidy[2,2]
-#' MCN <- computeMutCn(vcf[1:1000], bb, clusters, purity)
-#' # Check output
-#' # Mutation Annotation
-#' head(MCN$D)
-#' # Classify as basic clonal states
-#' table(classifyMutations(MCN$D))
-#' # Timing parameters
-#' MCN$P[[1]]
-#' # Extract timing of segments
-#' bb$timing_param <- MCN$P
-#' bbToTime(bb)
-#' PRE: Purity must be equal to the main clone, otherwise spurious results can be generated
-#' PRE: CNV segments don't have to overlap, otherwise an error is generated: "Error in if (!mixFlag[j]) { : missing value where TRUE/FALSE needed"
-
-require(VariantAnnotation)
-require(VGAM)
-
-
-
 #' Extract tumour depth
 #' @param vcf 
-#' @return 
+#' @return numeric()
 #' 
 #' @author mg14
 #' @export
@@ -46,7 +19,7 @@ getTumorDepth <- function(vcf){
 
 #' Get alt alleles counts 
 #' @param vcf 
-#' @return 
+#' @return numeric()
 #' 
 #' @author mg14
 #' @export
@@ -69,6 +42,7 @@ getAltCount <- function(vcf){
 	}
 }
 
+#' @importFrom VGAM pbetabinom
 dtrbinom <- function(x, size, prob, xmin=0) dbinom(x,size,prob) / pbinom(xmin-1, size, prob, lower.tail=FALSE)
 pbetabinom <- function(x, size, prob, rho){
 	if(rho!=0)
@@ -76,6 +50,7 @@ pbetabinom <- function(x, size, prob, rho){
 	else
 		pbinom(x, size, prob)
 }
+#' @importFrom VGAM dbetabinom
 dbetabinom <- function(x, size, prob, rho){
 	if(rho!=0)
 		VGAM::dbetabinom(x, size, prob, rho)
@@ -112,7 +87,6 @@ mergeClusters <- function(clusters, deltaFreq=0.05){
 #' @return list of length nrow(bb), can be added to mcols(bb)
 #' 
 #' @author mg14
-#' @export
 defineMcnStates <- function(bb, clusters, purity, gender='female', isWgd= FALSE){
 	P <- vector(mode='list', length(bb))
 	uniqueBB <- unique(bb)
@@ -252,7 +226,7 @@ defineMcnStates <- function(bb, clusters, purity, gender='female', isWgd= FALSE)
 } 
 
 
-#' Compute Mutation copy numbers
+#' Compute timing parameters
 #' @param vcf A vcf object of ssnms. See VariantAnnotation::readVcf()
 #' @param bb The copy number as a GRanges() object, meta data in consensus format. See loadBB()
 #' @param clusters A data.frame with the cluster proportion and n_ssms
@@ -262,10 +236,10 @@ defineMcnStates <- function(bb, clusters, purity, gender='female', isWgd= FALSE)
 #' @param xmin min read support. Needed for power calculations
 #' @param rho Dispersion parameter
 #' @return A list with elements (D: Annotated Data.Frame, can be added to vcf object; P: Timing parameters to be added to CN Ranges; power.c power of each cluster).
+#' @example inst/example/example.R
 #' 
 #' @author mg14
-#' @export
-computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALSE, xmin=3, rho=0, n.boot=200){
+computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(bb$clonal_frequency,na.rm=TRUE), n_ssms=100), purity=max(bb$clonal_frequency,na.rm=TRUE), gender='female', isWgd= FALSE, xmin=3, rho=0, n.boot=200){
 	n <- nrow(vcf)
 	D <- DataFrame(MutCN=rep(NA,n), MutDeltaCN=rep(NA,n), MajCN=rep(NA,n), MinCN=rep(NA,n), MajDerCN=rep(NA,n), MinDerCN=rep(NA,n), CNF=rep(NA,n), CNID =as(vector("list", n),"List"), pMutCN=rep(NA,n), pGain=rep(NA,n),pSingle=rep(NA,n),pSub=rep(NA,n), pMutCNTail=rep(NA,n))	
 	P <- defineMcnStates(bb,clusters, purity, gender, isWgd)
@@ -448,7 +422,42 @@ computeMutCn <- function(vcf, bb, clusters, purity, gender='female', isWgd= FALS
 			}
 		}
 	}
-	return(list(D=D,P=P, power.c=power.c))
+	return(list(D=D, P=P, power.c=power.c))
+}
+
+#' Compute mutation time from copy number gains and point mutations
+#' @param vcf A vcf object of ssnms. See VariantAnnotation::readVcf()
+#' @param bb The copy number as a GRanges() object, meta data in consensus format. See loadBB()
+#' @param clusters A data.frame with the cluster proportion and n_ssms
+#' @param purity The purity of the samples
+#' @param gender 'male' or 'female'
+#' @param isWgd TRUE/FALSE 
+#' @param xmin min read support. Needed for power calculations
+#' @param rho Dispersion parameter
+#' @return A list with elements (V: Data.Frame with variant-specific timing information, can be added to vcf object; T: DataFrame with timing information to be added to CN Ranges; power.c power of each cluster).
+#' @example inst/example/example.R
+#' 
+#' @author mg14
+#' @export
+mutationTime <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(bb$clonal_frequency,na.rm=TRUE), n_ssms=100), purity=max(bb$clonal_frequency,na.rm=TRUE), gender='female', isWgd= FALSE, xmin=3, rho=0, n.boot=200){
+	MT <- computeMutCn(vcf, bb, clusters, purity, gender, isWgd, xmin, rho, n.boot)
+	MT$D$CLS <- classifyMutations(as.data.frame(MT$D))
+	n.snv_mnv <- countOverlaps(bb,vcf)
+	time <- bbToTime(bb, timing_param=MT$P, n.snv_mnv=n.snv_mnv)
+	T <- DataFrame(timing_param=List(MT$P), time, n.snv_mnv=n.snv_mnv)
+	return(list(V=MT$D, T=T))
+}
+
+
+#' Return header elements
+#' @return DataFrame() to be added to VCF header
+#' 
+#' @author mg14
+#' @export
+mtHeader <- function() {
+	DataFrame(Number=c(1,1,1,1,1,1,1,1,".",1,1,1,1,1),Type=c("Float","Float","Integer","Integer","Integer","Integer","Float","Float","Integer","Float","Float","Float","Float","String"), 
+			Description=c("Mutation copy number","Change in MutCN between ancestral and derived state","Major copy number (ancestral)","Minor copy number (ancestral)","Major copy number (derived)","Minor copy number (derived)","Copy number frequency (relative to all cancer cells)", "MutCN probability","BB segment ids","Posterior prob: Early clonal","Posterior prob: Late clonal","Posterior prob: Subclonal", "Tail prob of mixture model","Mutation Time {clonal [early], clonal [late], clonal [NA], subclonal} - MAP assignments"),
+			row.names=c("MutCN","MutDeltaCN","MajCN","MinCN","MajDerCN","MinDerCN","CNF","pMutCN","CNID","pGain","pSingle","pSub", "pMutCNTail","CLS"))
 }
 
 mcnHeader <- function() {
@@ -459,17 +468,24 @@ mcnHeader <- function() {
 
 addMutCn <- function(vcf, bb=allBB[[meta(header(vcf))["ID",]]], clusters=allClusters[[meta(header(vcf))["ID",]]]){
 	i = info(header(vcf))
-	info(header(vcf)) <- rbind(i, mcnHeader())
+	info(header(vcf)) <- rbind(i, mtHeader())
 	info(vcf) <- cbind(info(vcf), computeMutCn(vcf, bb, clusters)$D)
 	return(vcf)
 }
 
+#' Classify Mutations
+#' @param x 
+#' @param reclassify 
+#' @return factor()
+#' 
+#' @importFrom S4Vectors as.matrix
+#' @author mg14
 classifyMutations <- function(x, reclassify=c("missing","all","none")) {
 	reclassify <- match.arg(reclassify)
 	if(nrow(x) ==0 )
 		return(factor(NULL, levels=c("clonal [early]", "clonal [late]", "clonal [NA]", "subclonal")))
 	if(class(x)=="CollapsedVCF")
-	x <- info(x)
+		x <- info(x)
 	.clsfy <- function(x) {
 		cls <- x$CLS
 		if(reclassify %in% c("missing", "none") &! is.null(cls)){
@@ -528,7 +544,7 @@ piToTime <- function(timing_param, type=c("Mono-allelic Gain","CN-LOH", "Bi-alle
 	if(nrow(t)==1) t <- rbind(t, NA)
 	if(!any(is.na(t))){
 		if(M==4) {
-			if(timing_param[M-1,"P.m.sX"] < 0.02){ ## No MCN 3
+			if(timing_param[M-1,"P.m.sX.lo"] < 0.001){ ## No MCN 3
 				if(type=="CN-LOH"){ ## Hotfix for 4+0, treated at 1:1 -> 2:0 -> 4:0
 					t <- timing_param[c(M,M-2),c("T.m.sX","T.m.sX.lo","T.m.sX.up"), drop=FALSE]*c(1,0.5) ## Timing M and M-2
 					evo <- "1:1->2:0->4:0"
@@ -566,7 +582,15 @@ piToTime <- function(timing_param, type=c("Mono-allelic Gain","CN-LOH", "Bi-alle
 	return(c(t[1,],`.2nd`=t[2,])) ## Linearise
 }
 
-bbToTime <- function(bb, timing_param = bb$timing_param, pseudo.count=5){
+#' Convert timing parameters into timing estimates
+#' @param bb 
+#' @param timing_param 
+#' @param pseudo.count 
+#' @return data.frame()
+#' 
+#' @author mg14
+#' @export
+bbToTime <- function(bb, timing_param = bb$timing_param, n.snv_mnv = bb$n.snv_mnv, pseudo.count=5){
 	sub <- duplicated(bb) 
 	covrg <- countQueryHits(findOverlaps(bb, bb)) 
 	maj <- sapply(timing_param, function(x) if(length(x) > 0) x[1, "majCNanc"] else NA) #bb$major_cn
@@ -587,16 +611,22 @@ bbToTime <- function(bb, timing_param = bb$timing_param, pseudo.count=5){
 	colnames(res) <- c("type","time","time.lo","time.up","time.2nd","time.2nd.lo","time.2nd.up")
 	
 	# posthoc adjustment of CI's
-	res$time.up <- (pseudo.count + bb$n.snv_mnv * res$time.up)/(pseudo.count + bb$n.snv_mnv)
-	res$time.lo <- (0 + bb$n.snv_mnv * res$time.lo)/(pseudo.count + bb$n.snv_mnv)
-	res$time.2nd.up <- (pseudo.count + bb$n.snv_mnv * res$time.2nd.up)/(pseudo.count + bb$n.snv_mnv)
-	res$time.2nd.lo <- (0 + bb$n.snv_mnv * res$time.2nd.lo)/(pseudo.count + bb$n.snv_mnv)
+	res$time.up <- (pseudo.count + n.snv_mnv * res$time.up)/(pseudo.count + n.snv_mnv)
+	res$time.lo <- (0 + n.snv_mnv * res$time.lo)/(pseudo.count + n.snv_mnv)
+	res$time.2nd.up <- (pseudo.count + n.snv_mnv * res$time.2nd.up)/(pseudo.count + n.snv_mnv)
+	res$time.2nd.lo <- (0 + n.snv_mnv * res$time.2nd.lo)/(pseudo.count + n.snv_mnv)
 	
 	res$time.star <- factor((covrg == 1) + (min < 2 & maj <= 2 | min==2 & maj==2) * (covrg == 1), levels=0:2, labels = c("*","**","***")) ## ***: 2+0, 2+1, 2+2; **: 2<n+1, {3,4}+2; *: subclonal gains
 	res$time.star[is.na(res$time)] <- NA
 	return(res)
 }
 
+averagePloidy <- function(bb) {
+	c <- if(!is.null(bb$copy_number)) bb$copy_number else bb$total_cn
+	sum(width(bb) * c * bb$clonal_frequency, na.rm=TRUE) / sum(width(bb) * bb$clonal_frequency, na.rm=TRUE)
+}
+
+#' @importFrom VGAM rbetabinom
 simulateMutations <- function(bb, purity=max(bb$clonal_frequency, na.rm=TRUE),  n=40, rho=0.01, xmin=3){
 	g <- (averagePloidy(bb)*purity + 2*(1-purity))
 	V <- list(VRanges())#VRanges()
@@ -607,7 +637,7 @@ simulateMutations <- function(bb, purity=max(bb$clonal_frequency, na.rm=TRUE),  
 						pwr <- cnStates[,"power.m.s"]#(cnStates[,"power.s"] * cnStates[,"power.m.s"])
 						s <- sample(1:nrow(cnStates), size=pmax(1,ceiling(bb$n.snv_mnv[i] * (p %*% (1/pwr)))), prob=p, replace=TRUE)
 						f <- cnStates[s,"f"]
-						mu.c <- (bb$total_cn[i]*purity + 2*(1-purity))/g * n
+						mu.c <- ((bb$major_cn[i] + bb$minor_cn[i])*purity + 2*(1-purity))/g * n
 						c <- rnbinom(length(f), size=1/rho, mu=mu.c)
 						x <- rbetabinom(n=length(f), size=c, prob=f, rho=rho)
 						pos <- round(runif(length(f), min=start(bb)[i], max=end(bb)[i]))
@@ -617,9 +647,235 @@ simulateMutations <- function(bb, purity=max(bb$clonal_frequency, na.rm=TRUE),  
 	V <- do.call("c", V[!sapply(V, is.null)])
 	sampleNames(V) <- "SAMPLE"
 	v <- as(V, "VCF")
-	info(header(v)) <- rbind(info(header(v)),info(header(finalSnv[[1]]))[c("t_ref_count","t_alt_count"),])
+	info(header(v)) <- rbind(info(header(v)),DataFrame(Number=1, Type=rep("Integer",2),Description=c("Tumour ref count","Tumour alt count"), row.names=c("t_ref_count","t_alt_count")))
 	info(v)$t_alt_count <- altDepth(V)
 	info(v)$t_ref_count <- totalDepth(V) - altDepth(V)
 	return(v)
+}
+
+
+.plotBB <- function(bb, ylim=c(0,max(max(bb$total_cn, na.rm=TRUE))), col=RColorBrewer::brewer.pal(4,"Set2"), type=c("lines","bars"), legend=TRUE, lty.grid=1, col.grid="grey", xaxt=TRUE, xlim=c(min(chrOffset[as.character(seqnames(bb))]+start(bb)),max(chrOffset[as.character(seqnames(bb))]+end(bb)))){
+	type <- match.arg(type)
+	s <- c(1:22, "X","Y")
+	l <- as.numeric(width(refLengths[as.character(seqnames(refLengths)) %in% s]))
+	names(l) <- s
+	plot(NA,NA, ylab="Copy number",xlab="",xlim=xlim, ylim=ylim, xaxt="n")
+	c <- cumsum(l)
+	axis(side=1, at=c(0,c), labels=rep('', length(l)+1))
+	if(xaxt) mtext(side=1, at= cumsum(l) - l/2, text=names(l), line=1)
+	#abline(v=c, lty=3)
+	if(type=="lines"){
+		x0 <- start(bb) + cumsum(l)[as.character(seqnames(bb))] - l[as.character(seqnames(bb))]
+		x1 <- end(bb) + cumsum(l)[as.character(seqnames(bb))] - l[as.character(seqnames(bb))]
+		lwd <- 5* bb$clonal_frequency / max(bb$clonal_frequency)
+		segments(x0=x0, bb$major_cn ,x1, bb$major_cn, col=col[1], lwd=lwd)
+		segments(x0=x0, bb$minor_cn -.125,x1, bb$minor_cn-.125, col=col[2], lwd=lwd)
+		segments(x0=x0, bb$total_cn+.125,x1, bb$total_cn+.125, col=1, lwd=lwd)
+#	cv <- coverage(bb)
+#	cv <- cv[s[s%in%names(cv)]]
+#	par(xpd=NA)
+#	for(n in names(cv)){
+#		cc <- cv[[n]]
+#		segments(start(cc) + cumsum(l)[n] - l[n] ,-runValue(cc)/2,end(cc)+ cumsum(l)[n] - l[n], -runValue(cc)/2, col=4)
+#	}
+	}else{
+		ub <- unique(bb)
+		f <- findOverlaps(ub,bb)
+		m <- t(model.matrix( ~ 0 + factor(queryHits(f))))
+		ub$major_cn <- m %*% mg14::na.zero(bb$major_cn * bb$clonal_frequency) / max(bb$clonal_frequency)
+		ub$minor_cn <- m %*% mg14::na.zero(bb$minor_cn * bb$clonal_frequency) / max(bb$clonal_frequency)
+		ub$total_cn <- ub$major_cn + ub$minor_cn
+		ub$clonal_frequency <- max(bb$clonal_frequency)
+		x0 <- start(ub) + cumsum(l)[as.character(seqnames(ub))] - l[as.character(seqnames(ub))]
+		x1 <- end(ub) + cumsum(l)[as.character(seqnames(ub))] - l[as.character(seqnames(ub))]
+		rect(x0,0,x1, ub$major_cn, col=col[2], lwd=NA)
+		rect(x0,ub$major_cn,x1, ub$total_cn, col=col[1], lwd=NA)
+		abline(h = 1:floor(ylim[2]), lty=lty.grid, col=col.grid)
+	}
+	abline(v = chrOffset[1:25], lty=lty.grid, col=col.grid)
+	if(xaxt) mtext(side=1, line=1, at=chrOffset[1:24] + diff(chrOffset[1:25])/2, text=names(chrOffset[1:24]))
+	if(legend){
+		if(type=="lines") legend("topleft", c("Total CN","Major CN","Minor CN"), col=c("black", col[1:2]), lty=1, lwd=2, bg='white')
+		else legend("topleft", c("Major CN","Minor CN"), fill=col[1:2], bg='white')
+	}
+}
+
+.plotVcf <- function(vcf, bb, col = RColorBrewer::brewer.pal(9, "Set1")[c(3,4,2,1,9)], ID = meta(header(vcf))[[1]]["ID",1], legend=TRUE, lty.grid=1, col.grid="grey", xaxt=TRUE, pch=16, pch.out=pch, cex=0.66, xlim=c(0,chrOffset["MT"])) {
+	cls <- factor(paste(as.character(info(vcf)$CLS)), levels = c("clonal [early]","clonal [late]","clonal [NA]","subclonal" , "NA"))
+	plot(NA,NA, xlab='', ylab="VAF", ylim=c(0,1), xlim=xlim, xaxt="n", cex=cex)
+	abline(v = chrOffset[1:25], lty=lty.grid, col=col.grid)
+	if(xaxt) mtext(side=1, line=1, at=chrOffset[1:24] + diff(chrOffset[1:25])/2, text=names(chrOffset[1:24]))
+	for(i in which(!sapply(bb$timing_param, is.null))) {
+		s <- start(bb)[i]
+		e <- end(bb)[i]
+		x <- chrOffset[as.character(seqnames(bb)[i])]
+		y <- bb$timing_param[[i]][,"f"]
+		l <- bb$timing_param[[i]][,"pi.s"] * bb$timing_param[[i]][,"P.m.sX"]
+		l[is.na(l)] <- 0
+		if(any(is.na(c(s,e,x,y,l)))) next
+		segments(s+x,y,e+x,y, lwd=l*4+.1)
+		#text(x=(s+e)/2 +x, y=y, paste(signif(bb$timing_param[[i]][,"m"],2),signif(bb$timing_param[[i]][,"cfi"]/purityPloidy[meta(header(vv))["ID",1],"purity"],2), sep=":"), pos=3, cex=0.5)
+	}
+	points(start(vcf) + chrOffset[as.character(seqnames(vcf))], getAltCount(vcf)/getTumorDepth(vcf),col=col[cls],  pch=ifelse(info(vcf)$pMutCNTail < 0.025 | info(vcf)$pMutCNTail > 0.975, pch.out , pch),  cex=cex)				
+	if(legend) legend("topleft", pch=19, col=col, legend=paste(as.numeric(table(cls)), levels(cls)), bg='white')
+}
+
+.timeToBeta <- function(time){
+	mu <- time[,1]
+	#if(any(is.na(time))) return(c(NA,NA))
+	mu <- pmax(1e-3, pmin(1 - 1e-3, mu))
+	v <- (0.5 * (pmax(mu,time[,3])-pmin(mu,time[,2])))^2
+	alpha <- mu * (mu * (1-mu) / v - 1)
+	beta <- (1-mu) *  (mu * (1-mu) / v - 1)
+	return(cbind(alpha, beta))
+}
+
+.plotTiming <- function(bb, time=mcols(bb), col=paste0(RColorBrewer::brewer.pal(5,"Set2")[c(3:5)],"88"), legend=TRUE, col.grid='grey', lty.grid=1, xlim=c(0,chrOffset["MT"]), plot=2){
+	plot(NA,NA, xlab='', ylab="Time [mutations]", ylim=c(0,1), xlim=xlim, xaxt="n")
+	if(any(!is.na(bb$time)))
+		tryCatch({
+					bb <- bb[!is.na(bb$time)]
+					s <- start(bb)
+					e <- end(bb)
+					x <- chrOffset[as.character(seqnames(bb))]
+					y <- time[,"time"]
+					rect(s+x,time[,"time.lo"],e+x,time[,"time.up"], border=NA, col=col[time[,"type"]], angle = ifelse(bb$time.star=="*" | is.na(bb$time.star),45,135), density=ifelse(bb$time.star == "***", -1, 72))
+					segments(s+x,y,e+x,y)
+					
+					if("time.2nd" %in% colnames(time)){ 
+						w <- !is.na(time[,"time.2nd"])
+						if(sum(w) != 0 & plot==2){
+							s <- start(bb)[w]
+							e <- end(bb)[w]
+							x <- chrOffset[as.character(seqnames(bb))][w]
+							y <- time[w,"time.2nd"]
+							rect(s+x,time[w,"time.2nd.lo"],e+x,time[w,"time.2nd.up"], border=NA, col=sub("88$","44",col)[as.numeric(time[w,"type"])], angle = ifelse(bb$time.star[w]=="*" | is.na(bb$time.star[w]),45,135), density=ifelse(bb$time.star[w] == "***", -1, 72))
+							segments(s+x,y,e+x,y)
+						}
+					}
+				}, error=function(x) warning(x))
+	abline(v = chrOffset[1:25], lty=lty.grid, col=col.grid)
+	s <- c(1:22, "X","Y")
+	l <- as.numeric(width(refLengths[as.character(seqnames(refLengths)) %in% s]))
+	names(l) <- s
+	c <- cumsum(l)
+	axis(side=1, at=c(0,c), labels=rep('', length(l)+1))
+	mtext(side=1, line=1, at=chrOffset[1:24] + diff(chrOffset[1:25])/2, text=names(chrOffset[1:24]))
+	if(legend) legend("topleft", levels(time[,"type"]), fill=col, bg="white")
+}
+
+.betaFromCi <- function(x, weight.mode=5){
+	if(any(is.na(x))) return(rep(NA,2))
+	f <- function(par,x) {
+		beta <- exp(par)
+		sum((qbeta(c(0.025,0.975), beta[1], beta[2])-x[-1])^2)+weight.mode*((beta[1]-1)/(beta[1]+beta[2]-2)-x[1])^2
+	}
+	tryCatch(exp(optim(c(0.1,0.1), fn=f,x=x)$par), error=c(1,1))
+}
+
+.histBeta <- function(bb, time="time",n.min=10, s=seq(0.005,0.995,0.01)){
+	s <- pmax(0.001,pmin(0.999, s))
+	cols <- paste0(time,c("",".lo",".up"))
+	w <- which(bb$n.snv_mnv > n.min & !is.na(mcols(bb)[cols[1]]) & !duplicated(bb))
+	if(length(w)==0) return(rep(NA, length(s)))
+	d <- apply(as.matrix(mcols(bb)[w,c(cols, "n.snv_mnv")]), 1, function(x){
+				beta <- .betaFromCi(x[1:3])
+				beta <- (beta * x[4] + 5*c(1,1))/(x[4]+5) # "posterior" with prior B(1,1)
+				dbeta(s,beta[1],beta[2])
+			})
+	wd <- as.numeric(width(bb)[w])
+	o <- d %*% wd
+}
+
+
+
+#' Plot timing
+#' @param vcf 
+#' @param bb 
+#' @param sv 
+#' @param title 
+#' @param regions 
+#' @param ylim.bb 
+#' @param layout.height 
+#' @param y1 
+#' @return NULL
+#' 
+#' @author mg14
+#' @export
+plotSample <- function(vcf, bb, sv=NA, title="", regions=NULL, ylim.bb=c(0,5), layout.height=c(4,1.2,3.5), y1=ylim.bb[2]-1) {
+	if(is.null(regions)) regions <- refLengths[1:24]
+	p <- par()
+	layout(matrix(1:3, ncol=1), height=layout.height)
+	par(mar=c(0.5,3,0.5,0.5), mgp=c(2,0.25,0), bty="L", las=2, tcl=-0.25, cex=1)
+	xlim=c(min(chrOffset[as.character(seqnames(regions))]+start(regions)),max(chrOffset[as.character(seqnames(regions))]+end(regions)))
+	bbb <- bb[bb %over% regions]
+	.plotVcf(vcf[vcf %over% regions], bbb, legend=FALSE, col.grid='white',  xaxt=FALSE, cex=0.33, xlim=xlim)
+	mtext(line=-1, side=3, title, las=1)
+	.plotBB(bbb, ylim=ylim.bb, legend=FALSE, type='bar', col.grid='white', col=c("lightgrey", "darkgrey"), xaxt=FALSE, xlim=xlim)
+	tryCatch({
+				par(xpd=NA)
+				.plotSv(sv, y1=y1, regions=regions, add=TRUE)
+				par(xpd=FALSE)
+			}, error=function(x) warning(x))
+	par(mar=c(3,3,0.5,0.5))
+	.plotTiming(bbb, xlim=xlim, legend=FALSE, col.grid=NA)
+	if(length(regions) == 1)
+		axis(side=1, at=pretty(c(start(regions), end(regions)))+chrOffset[as.character(seqnames(regions))], labels=sitools::f2si(pretty(c(start(regions), end(regions)))))
+	if(any(!is.na(bb$time))){
+		y0 <- seq(0.005,0.995,0.01)
+		s <- .histBeta(bb)
+		g <- colorRampPalette(RColorBrewer::brewer.pal(4,"Set1")[c(3,2,4)])(100)
+		segments(x0=chrOffset["MT"] ,y0=y0,x1=chrOffset["MT"] + s/max(s) * 1e8, col=g, lend=3)
+		getMode <- function(s){
+			if(all(is.na(s))) return(NA)
+			w <- which.max(s)
+			if(w %in% c(1, length(s))){
+				m <- which(c(0,diff(s))>0 & c(diff(s),0)<0)
+				if(length(m)==0) return(w)
+				m <- m[which.max(s[m])]
+				return(if(s[w] > 2*s[m]) w else m) 
+			} else return(w)
+		}
+		abline(h=y0[getMode(s)], lty=5)
+		if("time.2nd" %in% colnames(mcols(bb))) if(any(!is.na(bb$time.2nd))){
+				s2 <- .histBeta(bb, time="time.2nd")
+				segments(x0=chrOffset["MT"] + s/max(s) * 1e8 ,y0=y0,x1=chrOffset["MT"] + s/max(s) * 1e8 + s2/max(s) * 1e8, col=paste0(g,"44"), lend=3)
+				abline(h=y0[getMode(s2)], lty=3)
+				
+			}
+	}
+	#print(w)
+	par(p[setdiff(names(p), c("cin","cra","csi","cxy","din","page"))])
+}
+
+.plotSv <- function(sv, y0=0,y1=y0, h=1, col=paste0(RColorBrewer::brewer.pal(5,"Set1"),"44"), regions=refLengths[1:24], add=FALSE){
+	if(add==FALSE){
+		s <- c(1:22, "X","Y")
+		l <- as.numeric(width(refLengths[as.character(seqnames(refLengths)) %in% s]))
+		names(l) <- s
+		plot(NA,NA, ylab="Copy number",xlab="",xlim=xlim, ylim=ylim, xaxt="n")
+		c <- cumsum(l)
+		axis(side=1, at=c(0,c), labels=rep('', length(l)+1))
+		if(length(regions) == 1)
+			axis(side=1, at=pretty(c(start(regions), end(regions)))+chrOffset[as.character(seqnames(regions))], labels=sitools::f2si(pretty(c(start(regions), end(regions)))))
+		if(xaxt) mtext(side=1, at= cumsum(l) - l/2, text=names(l), line=1)
+	}
+	#r <- rowRanges(sv)
+	#a <- unlist(alt(sv))
+	vs <- GRanges(info(sv)$MATECHROM, IRanges(info(sv)$MATEPOS, width=1))
+	l <- 20
+	x0 <- seq(0,1,l=l) 
+	y2 <- x0*(1-x0)*4*h
+	cls <- factor(as.character(info(sv)$SVCLASS), levels=c("DEL", "DUP", "h2hINV","t2tINV","TRA"))
+	w <- which(sv %over% regions | vs %over% regions)
+	for(i in w)
+		try({
+					x <- seq(start(sv)[i] + chrOffset[as.character(seqnames(sv)[i])], start(vs)[i] + chrOffset[as.character(seqnames(vs)[i])], length.out=l)
+					x <- c(x[1], x, x[length(x)])
+					y <- y1 + y2 * if(grepl("INV", cls[i])) -1 else 1
+					y <- c(y0, y , y0)
+					lines(x, y, col=col[cls[i]])
+					#segments(x0=c(x[1], x[l]), x1=c(x[1],x[l]), y0=y0, y1=y1, col=col[cls[i]])
+				})
 }
 

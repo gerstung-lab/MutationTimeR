@@ -1,3 +1,7 @@
+getTumorCounts <- function(vcf){
+	sapply(grep("(F|R).Z", names(geno(vcf)), value=TRUE), function(i) geno(vcf)[[i]][,"TUMOUR"])
+}
+
 #' Extract tumour depth
 #' @param vcf 
 #' @return numeric()

@@ -524,7 +524,7 @@ loadBB <- function(file, round_subclones=F, remove_subclones=F) {
 
           merged_subclonal = data.frame()
           if (any(c > 1)) {
-            subclonal_segments = unique(queryHits(o)[which(c > 1)])
+	    subclonal_segments = which(c > 1)[seq(1,length(which(c > 1)), 2)]
             for (i in subclonal_segments) {
               tab_curr = tab[subjectHits(o)[queryHits(o)==i],]
               tab_select = tab_curr[which.max(tab_curr$ccf),]

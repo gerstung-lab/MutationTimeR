@@ -528,56 +528,9 @@ posteriorMutCN <- function(x,n, cnStates, xmin=3, rho=0.01){
 	return(P.sm.x)
 }
 
-
-loadBB <- function(file, round_subclones=F, remove_subclones=F) {
-  if (round_subclones & remove_subclones) {
-    print("When supplying both rounding and removing to loadBB subclones are removed")
-  }
-
-
-        tab <- read.table(file, header=TRUE, sep='\t')
-        r = GRanges(tab$chromosome, IRanges(tab$start, tab$end), strand="*", tab[-3:-1])
-
-        if (remove_subclones) {
-          o = findOverlaps(r, r)
-          c = countSubjectHits(o)
-          subclonal_segments = which(c > 1)
-          r = r[-subclonal_segments,]
-
-        } else if (round_subclones) {
-
-          # Check for the ccf column
-          if (!"ccf" %in% colnames(tab)) {
-            print("No CCF column in segments supplied, stopping")
-            q(save="no", status=1)
-          }
-
-          # Round subclonal copy number by taking the maximum CCF state
-          o = findOverlaps(r, r)
-          c = countSubjectHits(o)
-
-          merged_subclonal = data.frame()
-          if (any(c > 1)) {
-	    subclonal_segments = which(c > 1)[seq(1,length(which(c > 1)), 2)]
-            for (i in subclonal_segments) {
-              tab_curr = tab[subjectHits(o)[queryHits(o)==i],]
-              tab_select = tab_curr[which.max(tab_curr$ccf),]
-              tab_select$ccf = 1
-              merged_subclonal = rbind(merged_subclonal, tab_select)
-            }
-          }
-          subclonal_segments = subjectHits(o)[which(c > 1)]
-          tab_merged = rbind(tab[c==1,], merged_subclonal)
-          r = sort(GRanges(tab_merged$chromosome, IRanges(tab_merged$start, tab_merged$end), strand="*", tab_merged[-3:-1]))
-        }
-
-        if (length(r)==0) {
-          print("No copy number left after filtering, exit now")
-          q(save="no", status=0)
-        }
-
-
-        return(r)
+loadBB <- function(file){
+  tab <- read.table(file, header=TRUE, sep='\t')
+  GRanges(tab$chromosome, IRanges(tab$start, tab$end), strand="*", tab[-3:-1])
 }
 
 pGainToTime <- function(vcf){

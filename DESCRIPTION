@@ -1,0 +1,14 @@
+Package: MutationTimeR
+Type: Package
+Title: Timing somatic point mutations and copy number gains
+Version: 0.99.1
+Date: 2018-07-07
+Author: Moritz Gerstung
+Maintainer: Moritz Gerstung <moritz.gerstung@ebi.ac.uk>
+Description: This package uses deep sequencing data from cancer samples and calculates the timing of copy number gains using overlapping point mutations. 
+License: GPL-3
+Depends:
+    VariantAnnotation
+Imports:
+    VGAM
+RoxygenNote: 6.0.1

@@ -467,22 +467,183 @@ mutationTime <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 #' @author mg14
 #' @export
 mtHeader <- function() {
-	DataFrame(Number=c(1,1,1,1,1,1,1,1,".",1,1,1,1,1),Type=c("Float","Float","Integer","Integer","Integer","Integer","Float","Float","Integer","Float","Float","Float","Float","String"), 
-			Description=c("Mutation copy number","Change in MutCN between ancestral and derived state","Major copy number (ancestral)","Minor copy number (ancestral)","Major copy number (derived)","Minor copy number (derived)","Copy number frequency (relative to all cancer cells)", "MutCN probability","BB segment ids","Posterior prob: Early clonal","Posterior prob: Late clonal","Posterior prob: Subclonal", "Tail prob of mixture model","Mutation Time {clonal [early], clonal [late], clonal [NA], subclonal} - MAP assignments"),
-			row.names=c("MutCN","MutDeltaCN","MajCN","MinCN","MajDerCN","MinDerCN","CNF","pMutCN","CNID","pGain","pSingle","pSub", "pMutCNTail","CLS"))
+	DataFrame(Number=c(1,1,1,1,1,1,1,1,".",1,1,1,1,".",1),Type=c("Float","Float","Integer","Integer","Integer","Integer","Float","Float","Integer","Float","Float","Float","Float","String","String"), 
+			Description=c("Mutation copy number","Change in MutCN between ancestral and derived state","Major copy number (ancestral)","Minor copy number (ancestral)","Major copy number (derived)","Minor copy number (derived)","Copy number frequency (relative to all cancer cells)", "MutCN probability","BB segment ids","Posterior prob: Early clonal","Posterior prob: Late clonal","Posterior prob: Subclonal", "Tail prob of mixture model", "Assignment probability of mutation to subclone","Mutation Time {clonal [early], clonal [late], clonal [NA], subclonal} - MAP assignments"),
+			row.names=c("MutCN","MutDeltaCN","MajCN","MinCN","MajDerCN","MinDerCN","CNF","pMutCN","CNID","pGain","pSingle","pSub","pMutCNTail","pAllSubclones","CLS"))
 }
 
 mcnHeader <- function() {
-	DataFrame(Number=c(1,1,1,1,1,1,1,1,".",1,1,1,1),Type=c("Float","Float","Integer","Integer","Integer","Integer","Float","Float","Integer","Float","Float","Float","Float"), 
-			Description=c("Mutation copy number","Change in MutCN between ancestral and derived state","Major copy number (ancestral)","Minor copy number (ancestral)","Major copy number (derived)","Minor copy number (derived)","Copy number frequency (relative to all cancer cells)", "MutCN probability","BB segment ids","Posterior prob: Early clonal","Posterior prob: Late clonal","Posterior prob: Subclonal", "Tail prob of mixture model"),
-			row.names=c("MutCN","MutDeltaCN","MajCN","MinCN","MajDerCN","MinDerCN","CNF","pMutCN","CNID","pGain","pSingle","pSub", "pMutCNTail"))
+	DataFrame(Number=c(1,1,1,1,1,1,1,1,".",1,1,1,1,"."),Type=c("Float","Float","Integer","Integer","Integer","Integer","Float","Float","Integer","Float","Float","Float","Float","String"), 
+			Description=c("Mutation copy number","Change in MutCN between ancestral and derived state","Major copy number (ancestral)","Minor copy number (ancestral)","Major copy number (derived)","Minor copy number (derived)","Copy number frequency (relative to all cancer cells)", "MutCN probability","BB segment ids","Posterior prob: Early clonal","Posterior prob: Late clonal","Posterior prob: Subclonal", "Tail prob of mixture model", "Assignment probability of mutation to subclone"),
+			row.names=c("MutCN","MutDeltaCN","MajCN","MinCN","MajDerCN","MinDerCN","CNF","pMutCN","CNID","pGain","pSingle","pSub","pMutCNTail","pAllSubclones"))
 }
 
 addMutCn <- function(vcf, bb=allBB[[meta(header(vcf))["ID",]]], clusters=allClusters[[meta(header(vcf))["ID",]]]){
+  MCN = computeMutCn(vcf, bb, clusters)
 	i = info(header(vcf))
 	info(header(vcf)) <- rbind(i, mtHeader())
-	info(vcf) <- cbind(info(vcf), computeMutCn(vcf, bb, clusters)$D)
+	info(vcf) <- cbind(info(vcf), MCN$D)
 	return(vcf)
+}
+
+#' Add sample metadata entries to the VCF header
+#' @param vcf A VCF object
+#' @param purity Sample purity (Default: NULL)
+#' @param ploidy Sample ploidy (Default: NULL)
+#' @param sex Donor sex (Default: NULL)
+#' @param is_wgd Sample whole genome doubling status (TRUE if a whole genome doubling has occurred) (Default: NULL)
+#' @param subclonal_architecture Sample subclonal architecture data.frame (Default: NULL)
+#' @param cluster_power Sample vector with a power estimate per mutation cluster (Default: NULL)
+#' @return The VCF object with requested entries added to the metadata
+#' @author sd11
+addMetadataToHeader = function(vcf, purity=NULL, ploidy=NULL, sex=NULL, is_wgd=NULL, subclonal_architecture=NULL, cluster_power=NULL) {
+  # convenience function that takes care of adding a metadata entry
+  .addmeta = function(vcf, value, label) {
+    temp = DataFrame(Value=value)
+    rownames(temp) = label
+    if ("META" %in% names(meta(header(vcf)))) {
+      meta(header(vcf))[["META"]] = rbind(meta(header(vcf))[["META"]], temp)
+    } else {
+      meta(header(vcf))[["META"]] = temp
+    }
+    return(vcf)
+  }
+  
+  if (!is.null(purity)) vcf = .addmeta(vcf, purity, "purity")
+  if (!is.null(ploidy)) vcf = .addmeta(vcf, ploidy, "ploidy")
+  if (!is.null(sex)) vcf = .addmeta(vcf, sex, "sex")
+  if (!is.null(is_wgd)) vcf = .addmeta(vcf, is_wgd, "isWgd")
+  if (!is.null(cluster_power)) vcf = .addmeta(vcf, paste(cluster_power, collapse=","), "clusterPower")
+  
+  # convenience function that collapses a data.frame column into a single string
+  if (!is.null(subclonal_architecture)) {
+    .collapsecol = function(subclonal_architecture, colname) paste(c(colname, ":", paste(subclonal_architecture[,colname], collapse=",")), collapse="")
+    encoded_clusters = paste(sapply(colnames(subclonal_architecture), function(x) { .collapsecol(subclonal_architecture, x) }), collapse=";")
+    vcf = .addmeta(vcf, encoded_clusters, "subclonalArchitecture")
+  }
+  
+  return(vcf)
+}
+
+#' Convenience function to fetch info from metadata
+#' @param vcf VCF object to query
+#' @param label Row label to fetch from the metadata
+#' @return The requested entry as a String, or NULL if the entry was not found
+#' @author sd11
+getMetaEntry = function(vcf, label) {
+  if (label %in% rownames(meta(header(vcf))[["META"]])) {
+    return(meta(header(vcf))[["META"]][label,"Value"])
+  } else {
+    return(NULL)
+  }
+}
+
+#' Get sample purity from VCF metadata
+#' @param VCF object to query
+#' @return The sample purity, or NULL if the metadata entry is not available
+#' @author sd11
+#' @export
+getPurity = function(vcf) {
+  value = getMetaEntry(vcf, "purity")
+  if (!is.null(value)) value = as.numeric(value)
+  return(value)
+}
+
+#' Get sample ploidy from VCF metadata
+#' @param VCF object to query
+#' @return The sample ploidy, or NULL if the metadata entry is not available
+#' @author sd11
+#' @export
+getPloidy = function(vcf) {
+  value = getMetaEntry(vcf, "ploidy")
+  if (!is.null(value)) value = as.numeric(value)
+  return(value)
+}
+
+#' Get donor sex from VCF metadata
+#' @param VCF object to query
+#' @return The donor sex or, or NULL if the metadata entry is not available
+#' @author sd11
+#' @export
+getSex = function(vcf) {
+  value = getMetaEntry(vcf, "sex")
+  if (!is.null(value)) value = as.character(value)
+  return(value)
+}
+
+#' Get sample whole genome doubling status from VCF metadata
+#' @param VCF object to query
+#' @return The sample whole genome doubling status (TRUE if a WGD occurred, FALSE otherwise), or NULL if the metadata entry is not available
+#' @author sd11
+#' @export
+getWGDstatus = function(vcf) {
+  value = getMetaEntry(vcf, "isWgd")
+  if (!is.null(value)) value = as.logical(value)
+  return(value)
+}
+
+#' Get mutation cluster power from VCF metadata
+#' @param VCF object to query
+#' @return The mutation cluster power (vector with an entry per cluster), or NULL if the metadata entry is not available
+#' @author sd11
+#' @export
+getClusterPower = function(vcf) {
+  value = getMetaEntry(vcf, "clusterPower")
+  if (!is.null(value)) value = as.numeric(unlist(strsplit(value, ",")))
+  return(value)
+}
+
+#' Get sample subclonal architecture from VCF metadata
+#' @param VCF object to query
+#' @return A data.frame with the subclonal architecture of the sample, or NULL if the metadata entry is not available
+#' @author sd11
+#' @export
+getSubclonalArchitecture = function(vcf) {
+  value = getMetaEntry(vcf, "subclonalArchitecture")
+  columns = lapply(unlist(strsplit(value, ";")), function(x) unlist(strsplit(x, ":")))
+  columnnames = unlist(lapply(columns, function(x) x[1]))
+  columnvalues = lapply(columns, function(x) unlist(strsplit(x[2], ",")))
+  columnvalues = as.data.frame(do.call(cbind, columnvalues), stringsAsFactors=F)
+  colnames(columnvalues) = columnnames
+  
+  for (columnname in c("cluster", "proportion", "n_ssms", "n_snvs", "ccf", "cp")) {
+    if (columnname %in% colnames(columnvalues)) {
+      columnvalues[,columnname] = as.numeric(columnvalues[,columnname])
+    }
+  }
+  return(columnvalues)
+}
+
+#' Read a VCF file
+#' 
+#' This function overloads VariantAnnotation::readVcf as the pAllSubclones info column requires additional encoding to fit within the VCF standard
+#' @param file Path to a VCF file
+#' @return A VCF object
+#' @importFrom VariantAnnotation readVcf
+#' 
+#' @author sd11
+#' @export
+readVcf = function(file, ...) {
+  vcf = VariantAnnotation::readVcf(file, ...)
+  if ("pAllSubclones" %in% colnames(info(vcf))) {
+    info(vcf)$pAllSubclones = lapply(info(vcf)$pAllSubclones, function(x) as.numeric(unlist(strsplit(x, ","))))
+  }
+  return(vcf)
+}
+
+#' Write a VCF file
+#' 
+#' This function overloads VariantAnnotation::writeVcf as the pAllSubclones info column requires additional encoding to fit within the VCF standard
+#' @param vcf A VCF object
+#' @importFrom VariantAnnotation writeVcf
+#' 
+#' @author sd11
+#' @export
+writeVcf = function(vcf, ...) {
+  if ("pAllSubclones" %in% colnames(info(vcf))) {
+    info(vcf)$pAllSubclones = unlist(lapply(info(vcf)$pAllSubclones, function(x) paste(x, collapse=",")))
+  }
+  VariantAnnotation::writeVcf(vcf, ...)
 }
 
 #' Classify Mutations

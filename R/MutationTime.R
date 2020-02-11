@@ -407,7 +407,7 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 				D[hh, "pSingle"] <-  1 - D[hh, "pSub"] - D[hh, "pGain"]			
 
 				#currently doesn't work
-				#D[hh,"pAllSubclones"] <- as(DataFrame(t(P.sm.x[, !cnStates[,"clonalFlag"], drop=FALSE])),"List")
+				D[hh,"pAllSubclones"] <- as(DataFrame(t(P.sm.x[, !cnStates[,"clonalFlag"], drop=FALSE])),"List")
 				
 				D[hh,"MutCN"]  <- cnStates[w,"m"]
 				D[hh,"MutDeltaCN"]  <- cnStates[w,"majDelta"] + cnStates[w,"minDelta"]
@@ -419,8 +419,8 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 				D[hh,"CNF"]  <- cnStates[w,"cfi"]
 				D[hh,"pMutCN"] <- sapply(seq_along(w), function(i) P.sm.x[i,w[i]])
 				D[hh,"pMutCNTail"] <- sapply(seq_along(w), function(i) pMutCNTail[i,w[i]])
-				#D[hh,"altCount"] <- altCount[hh]
-				#D[hh,"wtCount"] <- tumDepth[hh] - altCount[hh]
+				D[hh,"altCount"] <- altCount[hh]
+				D[hh,"wtCount"] <- tumDepth[hh] - altCount[hh]
 			}		
 		}
 		if(globalIt==1){

@@ -83,7 +83,7 @@ mergeClusters <- function(clusters, deltaFreq=0.05){
 }
 
 #' Compute possible Mutation copy number states
-#' @param bb Copy number with consensus annotation meta data
+#' @param cn Copy number with consensus annotation meta data
 #' @param clusters 
 #' @param purity 
 #' @param gender 
@@ -93,15 +93,15 @@ mergeClusters <- function(clusters, deltaFreq=0.05){
 #' 
 #' @author mg14
 #' @export
-defineMcnStates <- function(bb, clusters, purity, gender='female', isWgd= FALSE, deltaFreq=0.05){
-	P <- vector(mode='list', length(bb))
-	uniqueBB <- unique(bb)
-	overlaps <- findOverlaps(uniqueBB, bb)
+defineMcnStates <- function(cn, clusters, purity, gender='female', isWgd= FALSE, deltaFreq=0.05){
+	P <- vector(mode='list', length(cn))
+	uniqueBB <- unique(cn)
+	overlaps <- findOverlaps(uniqueBB, cn)
 	
-	majorCN <- split(bb$major_cn[subjectHits(overlaps)], queryHits(overlaps))
-	m <- bb$minor_cn #hack: minor_cn > 0 in male samples - Battenberg bug?
+	majorCN <- split(cn$major_cn[subjectHits(overlaps)], queryHits(overlaps))
+	m <- cn$minor_cn #hack: minor_cn > 0 in male samples - Battenberg bug?
 	if(gender=='male')
-		m[as.character(seqnames(bb)) %in% c('X','Y')] <- 0
+		m[as.character(seqnames(cn)) %in% c('X','Y')] <- 0
 	minorCN <- split(m[subjectHits(overlaps)], queryHits(overlaps))	
 	h <- selectHits(overlaps, "first")
 	H <- selectHits(overlaps, "last")
@@ -111,7 +111,7 @@ defineMcnStates <- function(bb, clusters, purity, gender='female', isWgd= FALSE,
 	# Fix cluster and purity discrepancies
 	clusters$proportion[which.max(clusters$proportion)] <- purity
 	
-	cloneFreq <- split(bb$clonal_frequency[subjectHits(overlaps)], queryHits(overlaps))
+	cloneFreq <- split(cn$clonal_frequency[subjectHits(overlaps)], queryHits(overlaps))
 	cnStates <- matrix(0, nrow=10000, ncol=6)
 	colnames(cnStates) <- c("state","m","f","n.m.s","pi.m.s","s")
 	
@@ -239,8 +239,8 @@ defineMcnStates <- function(bb, clusters, purity, gender='female', isWgd= FALSE,
 #' @param isWgd TRUE/FALSE 
 #' @param xmin min read support. Needed for power calculations
 #' @param rho Dispersion parameter
-#' @param n.boot
-#' @param deltaFreq
+#' @param n.boot Number of bootstrap samples for confidence intervals.
+#' @param deltaFreq The difference between subclonal SNV and CN states within which they'd be merged
 #' @return A list with elements (D: Annotated Data.Frame, can be added to vcf object; P: Timing parameters to be added to CN Ranges; power.c power of each cluster).
 #' @example inst/example/example.R
 #' 
@@ -406,7 +406,8 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 				#D[hh, "pSingle"] <- rowSums(P.sm.x[, cnStates[1:k,"state"] %in% which(clonalFlag) & cnStates[1:k,"m"]<=1, drop=FALSE])
 				D[hh, "pSingle"] <-  1 - D[hh, "pSub"] - D[hh, "pGain"]			
 
-				D[hh, "pAllSubclones"] <- as(DataFrame(t(P.sm.x[, !cnStates[,"clonalFlag"], drop=FALSE])),"List")
+				#currently doesn't work
+				#D[hh,"pAllSubclones"] <- as(DataFrame(t(P.sm.x[, !cnStates[,"clonalFlag"], drop=FALSE])),"List")
 				
 				D[hh,"MutCN"]  <- cnStates[w,"m"]
 				D[hh,"MutDeltaCN"]  <- cnStates[w,"majDelta"] + cnStates[w,"minDelta"]
@@ -418,8 +419,8 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 				D[hh,"CNF"]  <- cnStates[w,"cfi"]
 				D[hh,"pMutCN"] <- sapply(seq_along(w), function(i) P.sm.x[i,w[i]])
 				D[hh,"pMutCNTail"] <- sapply(seq_along(w), function(i) pMutCNTail[i,w[i]])
-				D[hh,"altCount"] <- altCount[hh]
-				D[hh,"wtCount"] <- tumDepth[hh] - altCount[hh]
+				#D[hh,"altCount"] <- altCount[hh]
+				#D[hh,"wtCount"] <- tumDepth[hh] - altCount[hh]
 			}		
 		}
 		if(globalIt==1){
@@ -439,7 +440,7 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 
 #' Compute mutation time from copy number gains and point mutations
 #' @param vcf A vcf object of ssnms. See VariantAnnotation::readVcf()
-#' @param bb The copy number as a GRanges() object, meta data in consensus format. See loadBB()
+#' @param cn The copy number as a GRanges() object, meta data in consensus format. See loadBB()
 #' @param clusters A data.frame with the cluster proportion and n_ssms
 #' @param purity The purity of the samples
 #' @param gender 'male' or 'female'
@@ -451,11 +452,11 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 #' 
 #' @author mg14
 #' @export
-mutationTime <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(bb$clonal_frequency,na.rm=TRUE), n_ssms=100), purity=max(bb$clonal_frequency,na.rm=TRUE), gender='female', isWgd= FALSE, xmin=3, rho=0, n.boot=200){
-	MT <- computeMutCn(vcf, bb, clusters, purity, gender, isWgd, xmin, rho, n.boot)
+mutationTime <- function(vcf, cn, clusters=data.frame(cluster=1, proportion=max(cn$clonal_frequency,na.rm=TRUE), n_ssms=100), purity=max(cn$clonal_frequency,na.rm=TRUE), gender='female', isWgd= FALSE, xmin=3, rho=0, n.boot=200){
+	MT <- computeMutCn(vcf, cn, clusters, purity, gender, isWgd, xmin, rho, n.boot)
 	MT$D$CLS <- classifyMutations(as.data.frame(MT$D))
-	n.snv_mnv <- countOverlaps(bb,vcf)
-	time <- bbToTime(bb, timing_param=MT$P, n.snv_mnv=n.snv_mnv)
+	n.snv_mnv <- countOverlaps(cn,vcf)
+	time <- mtToTime(cn, timing_param=MT$P, n.snv_mnv=n.snv_mnv)
 	T <- DataFrame(timing_param=List(MT$P), time, n.snv_mnv=n.snv_mnv)
 	return(list(V=MT$D, T=T))
 }
@@ -755,26 +756,26 @@ piToTime <- function(timing_param, type=c("Mono-allelic Gain","CN-LOH", "Bi-alle
 }
 
 #' Convert timing parameters into timing estimates
-#' @param bb 
+#' @param cn Copy number input
 #' @param timing_param 
 #' @param pseudo.count 
 #' @return data.frame()
 #' 
 #' @author mg14
 #' @export
-bbToTime <- function(bb, timing_param = bb$timing_param, n.snv_mnv = bb$n.snv_mnv, pseudo.count=5){
-	sub <- duplicated(bb) 
-	covrg <- countQueryHits(findOverlaps(bb, bb)) 
+mtToTime <- function(cn, timing_param = cn$timing_param, n.snv_mnv = cn$n.snv_mnv, pseudo.count=5){
+	sub <- duplicated(cn) 
+	covrg <- countQueryHits(findOverlaps(cn, cn)) 
 	maj <- sapply(timing_param, function(x) if(length(x) > 0) x[1, "majCNanc"] else NA) #bb$major_cn
 	min <- sapply(timing_param, function(x) if(length(x) > 0) x[1, "minCNanc"] else NA) #bb$minor_cn
-	type <- sapply(seq_along(bb), function(i){
+	type <- sapply(seq_along(cn), function(i){
 				if(maj[i] < 2 | is.na(maj[i]) | sub[i] | (maj[i] > 4 & min[i] >= 2)) return(NA)
 				type <- if(min[i]==1){ "Mono-allelic Gain" 
 						}else if(min[i]==0){"CN-LOH"}
 						else "Bi-allelic Gain (WGD)"
 				return(type)
 			})
-	time <- t(sapply(seq_along(bb), function(i){
+	time <- t(sapply(seq_along(cn), function(i){
 						if(sub[i] | is.na(type[i])) return(rep(NA,6)) 
 						else piToTime(timing_param[[i]],type[i])
 					}))
@@ -799,22 +800,22 @@ averagePloidy <- function(bb) {
 }
 
 #' @importFrom VGAM rbetabinom
-simulateMutations <- function(bb, purity=max(bb$clonal_frequency, na.rm=TRUE),  n=40, rho=0.01, xmin=3){
-	g <- (averagePloidy(bb)*purity + 2*(1-purity))
+simulateMutations <- function(cn, purity=max(cn$clonal_frequency, na.rm=TRUE),  n=40, rho=0.01, xmin=3){
+	g <- (averagePloidy(cn)*purity + 2*(1-purity))
 	V <- list(VRanges())#VRanges()
-	for(i in which(!duplicated(bb)))
-		if(bb$n.snv_mnv[i]>1 & !is.null( bb$timing_param[[i]]))try({
-						cnStates <- bb$timing_param[[i]]
+	for(i in which(!duplicated(cn)))
+		if(cn$n.snv_mnv[i]>1 & !is.null( cn$timing_param[[i]]))try({
+						cnStates <- cn$timing_param[[i]]
 						p <- cnStates[,"pi.s"]* if(!any(is.na(cnStates[,"P.m.sX"]))) cnStates[,"P.m.sX"] else cnStates[,"pi.m.s"]
 						pwr <- cnStates[,"power.m.s"]#(cnStates[,"power.s"] * cnStates[,"power.m.s"])
-						s <- sample(1:nrow(cnStates), size=pmax(1,ceiling(bb$n.snv_mnv[i] * (p %*% (1/pwr)))), prob=p, replace=TRUE)
+						s <- sample(1:nrow(cnStates), size=pmax(1,ceiling(cn$n.snv_mnv[i] * (p %*% (1/pwr)))), prob=p, replace=TRUE)
 						f <- cnStates[s,"f"]
-						mu.c <- ((bb$major_cn[i] + bb$minor_cn[i])*purity + 2*(1-purity))/g * n
+						mu.c <- ((cn$major_cn[i] + cn$minor_cn[i])*purity + 2*(1-purity))/g * n
 						c <- rnbinom(length(f), size=1/rho, mu=mu.c)
 						x <- rbetabinom(n=length(f), size=c, prob=f, rho=rho)
-						pos <- round(runif(length(f), min=start(bb)[i], max=end(bb)[i]))
+						pos <- round(runif(length(f), min=start(cn)[i], max=end(cn)[i]))
 						w <- which(x>=xmin)
-						V[[i]] <- VRanges(seqnames=seqnames(bb)[i], IRanges(pos, width=1), ref="N", alt="A", totalDepth=c, altDepth=x)[w]
+						V[[i]] <- VRanges(seqnames=seqnames(cn)[i], IRanges(pos, width=1), ref="N", alt="A", totalDepth=c, altDepth=x)[w]
 					})
 	V <- do.call("c", V[!sapply(V, is.null)])
 	sampleNames(V) <- "SAMPLE"
@@ -962,8 +963,8 @@ simulateMutations <- function(bb, purity=max(bb$clonal_frequency, na.rm=TRUE),  
 
 
 #' Plot timing
-#' @param vcf 
-#' @param bb 
+#' @param vcf The `VCF` file to plot, with timing information added 
+#' @param cn 
 #' @param sv 
 #' @param title 
 #' @param regions 
@@ -974,28 +975,29 @@ simulateMutations <- function(bb, purity=max(bb$clonal_frequency, na.rm=TRUE),  
 #' 
 #' @author mg14
 #' @export
-plotSample <- function(vcf, bb, sv=NA, title="", regions=NULL, ylim.bb=c(0,5), layout.height=c(4,1.2,3.5), y1=ylim.bb[2]-1) {
+plotSample <- function(vcf, cn, sv=NULL, title="", regions=NULL, ylim.bb=c(0,5), layout.height=c(4,1.2,3.5), y1=ylim.bb[2]-1) {
 	if(is.null(regions)) regions <- refLengths[1:24]
 	p <- par()
 	layout(matrix(1:3, ncol=1), height=layout.height)
 	par(mar=c(0.5,3,0.5,0.5), mgp=c(2,0.25,0), bty="L", las=2, tcl=-0.25, cex=1)
 	xlim=c(min(chrOffset[as.character(seqnames(regions))]+start(regions)),max(chrOffset[as.character(seqnames(regions))]+end(regions)))
-	bbb <- bb[bb %over% regions]
+	bbb <- cn[cn %over% regions]
 	.plotVcf(vcf[vcf %over% regions], bbb, legend=FALSE, col.grid='white',  xaxt=FALSE, cex=0.33, xlim=xlim)
 	mtext(line=-1, side=3, title, las=1)
 	.plotBB(bbb, ylim=ylim.bb, legend=FALSE, type='bar', col.grid='white', col=c("lightgrey", "darkgrey"), xaxt=FALSE, xlim=xlim)
 	tryCatch({
 				par(xpd=NA)
-				.plotSv(sv, y1=y1, regions=regions, add=TRUE)
+				if(!is.null(sv))
+					.plotSv(sv, y1=y1, regions=regions, add=TRUE)
 				par(xpd=FALSE)
 			}, error=function(x) warning(x))
 	par(mar=c(3,3,0.5,0.5))
 	.plotTiming(bbb, xlim=xlim, legend=FALSE, col.grid=NA)
 	if(length(regions) == 1)
 		axis(side=1, at=pretty(c(start(regions), end(regions)))+chrOffset[as.character(seqnames(regions))], labels=sitools::f2si(pretty(c(start(regions), end(regions)))))
-	if(any(!is.na(bb$time))){
+	if(any(!is.na(cn$time))){
 		y0 <- seq(0.005,0.995,0.01)
-		s <- .histBeta(bb)
+		s <- .histBeta(cn)
 		g <- colorRampPalette(RColorBrewer::brewer.pal(4,"Set1")[c(3,2,4)])(100)
 		segments(x0=chrOffset["MT"] ,y0=y0,x1=chrOffset["MT"] + s/max(s) * 1e8, col=g, lend=3)
 		getMode <- function(s){
@@ -1009,8 +1011,8 @@ plotSample <- function(vcf, bb, sv=NA, title="", regions=NULL, ylim.bb=c(0,5), l
 			} else return(w)
 		}
 		abline(h=y0[getMode(s)], lty=5)
-		if("time.2nd" %in% colnames(mcols(bb))) if(any(!is.na(bb$time.2nd))){
-				s2 <- .histBeta(bb, time="time.2nd")
+		if("time.2nd" %in% colnames(mcols(cn))) if(any(!is.na(cn$time.2nd))){
+				s2 <- .histBeta(cn, time="time.2nd")
 				segments(x0=chrOffset["MT"] + s/max(s) * 1e8 ,y0=y0,x1=chrOffset["MT"] + s/max(s) * 1e8 + s2/max(s) * 1e8, col=paste0(g,"44"), lend=3)
 				abline(h=y0[getMode(s2)], lty=3)
 				

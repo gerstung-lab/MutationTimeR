@@ -4,11 +4,17 @@
 \alias{defineMcnStates}
 \title{Compute possible Mutation copy number states}
 \usage{
-defineMcnStates(bb, clusters, purity, gender = "female", isWgd = FALSE,
-  deltaFreq = 0.05)
+defineMcnStates(
+  cn,
+  clusters,
+  purity,
+  gender = "female",
+  isWgd = FALSE,
+  deltaFreq = 0.05
+)
 }
 \arguments{
-\item{bb}{Copy number with consensus annotation meta data}
+\item{cn}{Copy number with consensus annotation meta data}
 
 \item{clusters}{}
 

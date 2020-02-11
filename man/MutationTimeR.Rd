@@ -3,7 +3,6 @@
 \docType{package}
 \name{MutationTimeR}
 \alias{MutationTimeR}
-\alias{MutationTimeR-package}
 \title{Timing of point mutations and copy number gains from deep sequencing}
 \description{
 Timing of point mutations and copy number gains from deep sequencing
@@ -12,27 +11,27 @@ Timing of point mutations and copy number gains from deep sequencing
 This package provies functions to time copy number gains using point mutations.
 }
 \examples{
-bb <- MutationTime.R:::refLengths[1:23]
-bb$major_cn <- 3
-bb$minor_cn <- 1
-bb$clonal_frequency <- 0.8
-bb$timing_param <- MutationTime.R:::defineMcnStates(bb, purity=0.8, clusters=data.frame(cluster=1, proportion=0.8, n_ssms=100))
-for(i in seq_along(bb)){
-	bb$timing_param[[i]][,"P.m.sX"] <- c(0.6,0.1,0.3)
-	bb$timing_param[[i]][,"power.m.s"] <- rep(1,3)
+cn <- MutationTimeR:::refLengths[1:23]
+cn$major_cn <- 3
+cn$minor_cn <- 1
+cn$clonal_frequency <- 0.8
+cn$timing_param <- MutationTimeR:::defineMcnStates(cn, purity=0.8, clusters=data.frame(cluster=1, proportion=0.8, n_ssms=100))
+for(i in seq_along(cn)){
+	cn$timing_param[[i]][,"P.m.sX"] <- c(0.6,0.1,0.3)
+	cn$timing_param[[i]][,"power.m.s"] <- rep(1,3)
 }
-bb$n.snv_mnv <- width(MutationTime.R:::refLengths[1:23])/1e6
+cn$n.snv_mnv <- width(MutationTimeR:::refLengths[1:23])/1e6
 
-v <- MutationTime.R:::simulateMutations(bb)
-b <- bb[,c("major_cn","minor_cn","clonal_frequency")]
+vcf <- MutationTimeR:::simulateMutations(cn)
+cn_timed <- cn[,c("major_cn","minor_cn","clonal_frequency")]
 
-mt <- mutationTime(v, b, n.boot=10)
-mcols(b) <- cbind(mcols(b),mt$T)
+mt <- mutationTime(vcf, cn_timed, n.boot=10)
+mcols(cn_timed) <- cbind(mcols(cn_timed),mt$T)
 
-info(header(v)) <- rbind(info(header(v)),mtHeader())
-info(v) <- cbind(info(v), mt$V)
+info(header(vcf)) <- rbind(info(header(vcf)),mtHeader())
+info(vcf) <- cbind(info(vcf), mt$V)
 
-plotSample(v,b)
+plotSample(vcf,cn_timed)
 }
 \references{
 Gerstung M, et al. The evolutionary history of 2578 cancers. \href{http://dx.doi.org/10.1038/ncomms1814}{DOI:10.1038/ncomms1814}.

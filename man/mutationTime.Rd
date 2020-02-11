@@ -4,15 +4,23 @@
 \alias{mutationTime}
 \title{Compute mutation time from copy number gains and point mutations}
 \usage{
-mutationTime(vcf, bb, clusters = data.frame(cluster = 1, proportion =
-  max(bb$clonal_frequency, na.rm = TRUE), n_ssms = 100),
-  purity = max(bb$clonal_frequency, na.rm = TRUE), gender = "female",
-  isWgd = FALSE, xmin = 3, rho = 0, n.boot = 200)
+mutationTime(
+  vcf,
+  cn,
+  clusters = data.frame(cluster = 1, proportion = max(cn$clonal_frequency, na.rm =
+    TRUE), n_ssms = 100),
+  purity = max(cn$clonal_frequency, na.rm = TRUE),
+  gender = "female",
+  isWgd = FALSE,
+  xmin = 3,
+  rho = 0,
+  n.boot = 200
+)
 }
 \arguments{
 \item{vcf}{A vcf object of ssnms. See VariantAnnotation::readVcf()}
 
-\item{bb}{The copy number as a GRanges() object, meta data in consensus format. See loadBB()}
+\item{cn}{The copy number as a GRanges() object, meta data in consensus format. See loadBB()}
 
 \item{clusters}{A data.frame with the cluster proportion and n_ssms}
 
@@ -33,27 +41,27 @@ A list with elements (V: Data.Frame with variant-specific timing information, ca
 Compute mutation time from copy number gains and point mutations
 }
 \examples{
-bb <- MutationTime.R:::refLengths[1:23]
-bb$major_cn <- 3
-bb$minor_cn <- 1
-bb$clonal_frequency <- 0.8
-bb$timing_param <- MutationTime.R:::defineMcnStates(bb, purity=0.8, clusters=data.frame(cluster=1, proportion=0.8, n_ssms=100))
-for(i in seq_along(bb)){
-	bb$timing_param[[i]][,"P.m.sX"] <- c(0.6,0.1,0.3)
-	bb$timing_param[[i]][,"power.m.s"] <- rep(1,3)
+cn <- MutationTimeR:::refLengths[1:23]
+cn$major_cn <- 3
+cn$minor_cn <- 1
+cn$clonal_frequency <- 0.8
+cn$timing_param <- MutationTimeR:::defineMcnStates(cn, purity=0.8, clusters=data.frame(cluster=1, proportion=0.8, n_ssms=100))
+for(i in seq_along(cn)){
+	cn$timing_param[[i]][,"P.m.sX"] <- c(0.6,0.1,0.3)
+	cn$timing_param[[i]][,"power.m.s"] <- rep(1,3)
 }
-bb$n.snv_mnv <- width(MutationTime.R:::refLengths[1:23])/1e6
+cn$n.snv_mnv <- width(MutationTimeR:::refLengths[1:23])/1e6
 
-v <- MutationTime.R:::simulateMutations(bb)
-b <- bb[,c("major_cn","minor_cn","clonal_frequency")]
+vcf <- MutationTimeR:::simulateMutations(cn)
+cn_timed <- cn[,c("major_cn","minor_cn","clonal_frequency")]
 
-mt <- mutationTime(v, b, n.boot=10)
-mcols(b) <- cbind(mcols(b),mt$T)
+mt <- mutationTime(vcf, cn_timed, n.boot=10)
+mcols(cn_timed) <- cbind(mcols(cn_timed),mt$T)
 
-info(header(v)) <- rbind(info(header(v)),mtHeader())
-info(v) <- cbind(info(v), mt$V)
+info(header(vcf)) <- rbind(info(header(vcf)),mtHeader())
+info(vcf) <- cbind(info(vcf), mt$V)
 
-plotSample(v,b)
+plotSample(vcf,cn_timed)
 }
 \author{
 mg14

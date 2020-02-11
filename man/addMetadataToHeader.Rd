@@ -4,8 +4,15 @@
 \alias{addMetadataToHeader}
 \title{Add sample metadata entries to the VCF header}
 \usage{
-addMetadataToHeader(vcf, purity = NULL, ploidy = NULL, sex = NULL,
-  is_wgd = NULL, subclonal_architecture = NULL, cluster_power = NULL)
+addMetadataToHeader(
+  vcf,
+  purity = NULL,
+  ploidy = NULL,
+  sex = NULL,
+  is_wgd = NULL,
+  subclonal_architecture = NULL,
+  cluster_power = NULL
+)
 }
 \arguments{
 \item{vcf}{A VCF object}

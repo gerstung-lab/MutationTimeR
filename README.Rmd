@@ -1,11 +1,13 @@
 # MutationTimeR
 MutationTimeR is an R package to time somatic mutations relative to clonal and subclonal copy number states and calculate
 the relative timing of copy number gains.
-It has been used by the PCAWG consortium to calculate mutation times of 2,778 whole genome sequencing samples. http://dx.doi.org/10.1101/161562	
+It has been used by the PCAWG consortium to calculate mutation times of 2,778 whole genome sequencing samples. 
+Please see M. Gerstung, C. Jolly, I. Leshchiner, S. Dentro, S. Gonzalez _et al._, [The Evolutionary History of 2,658 Cancers](https://doi.org/10.1038/s41586-019-1907-7), _Nature_. *578*, pages 122-128(2020).	
 
 ## Installation
 MutationTimeR runs in most current `R` versions. You can install and load MutationTimeR using
-```{R}
+```{R, eval=FALSE}
+devtools::install_github("mg14/mg14")
 devtools::install_github("gerstung-lab/MutationTimeR")
 ```
 
@@ -16,13 +18,14 @@ MutationTimeR requires a `vcf` object containing point mutations (SNVs, MNVs, or
 library("MutationTimeR")
 #vcf <- readVcf("myvcf.vcf") # Point mutations, needs `info` columns t_alt_count t_ref_count
 #bb <- GRanges(, major_cn= , minor_cn=, clonal_frequency=purity) # Copy number segments, needs columns  major_cn, minor_cn and clonal_frequency of each segment
+#clusters <- data.frame(cluster= , n_ssms=, proportion=) # Optional data.frame with subclonal cluster locations (VAF proportion) and size (number of variants n_ssms)
 data(MutationTimeR)
 ```
 
 To run MutationTimeR simply use
 
 ```{R}
-mt <- mutationTime(vcf, bb)
+mt <- mutationTime(vcf, bb, clusters=clusters, n.boot=10)
 ```
 
 ## Annotation of point mutations
@@ -35,7 +38,7 @@ head(mt$V)
 These can be converted into basic clonal states (`early clonal/late clonal/clonal/subclonal/NA`)
 
 ```{R}
-table(classifyMutations(mt$V))
+table(mt$V$CLS)
 ```
 
 Add this annotation to the vcf
@@ -48,9 +51,8 @@ info(vcf) <- cbind(info(vcf), mt$V)
 ## Timing of copy number gains
 The proportion of point mutations in different copy number states, in turn, defines the molecular timing of gains. This can be calculated using: 
 
-```{R}
+```{R, fig.width=6, fig.height=6, fig.width=6}
 mcols(bb) <- cbind(mcols(bb),mt$T)
 plotSample(vcf,bb)
 ```
 
-<img src="MutationTime.png" alt="MutationTime.R output" width="50%"/>

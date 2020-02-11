@@ -4,13 +4,21 @@
 \alias{plotSample}
 \title{Plot timing}
 \usage{
-plotSample(vcf, bb, sv = NA, title = "", regions = NULL, ylim.bb = c(0,
-  5), layout.height = c(4, 1.2, 3.5), y1 = ylim.bb[2] - 1)
+plotSample(
+  vcf,
+  cn,
+  sv = NA,
+  title = "",
+  regions = NULL,
+  ylim.bb = c(0, 5),
+  layout.height = c(4, 1.2, 3.5),
+  y1 = ylim.bb[2] - 1
+)
 }
 \arguments{
-\item{vcf}{}
+\item{vcf}{The `VCF` file to plot, with timing information added}
 
-\item{bb}{}
+\item{cn}{}
 
 \item{sv}{}
 

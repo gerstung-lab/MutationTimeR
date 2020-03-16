@@ -82,6 +82,32 @@ mergeClusters <- function(clusters, deltaFreq=0.05){
 			))
 }
 
+#' Returns a table with probabilities for each distinct multiplicity state of all mutations defined in hh and P.sm.X
+#' @param vcf VCF object with at least seqnames and start accessors
+#' @param hh Vector of indices of mutations considered
+#' @param cnStates The copy number states of the copy number segment on which the mutations in hh fall
+#' @param P.sm.x Matrix with probabilities of each mutation in hh to each copy number state in cnStates
+#' @returns A data.frame with chromosome/position and a column for each possible multiplicity state on this segment
+get_multiplicity_probs = function(vcf, hh, cnStates, P.sm.x) {
+
+	P.sm.x_df = as.data.frame(P.sm.x)
+	cnStates_df = as.data.frame(cnStates)
+	probs_collapsed = list()
+
+	for (mult in sort(unique(cnStates_df$m))) {
+		mult_cols = which(cnStates_df$m==mult)
+		if (length(mult_cols) > 1) {
+			temp = data.frame(rowSums(P.sm.x_df[,mult_cols]))
+		} else {
+			temp = data.frame(P.sm.x_df[,mult_cols])
+		}
+		colnames(temp)[1] = paste0("mult_", mult)
+		probs_collapsed[[as.character(mult)]] = temp
+	}
+	probs_collapsed = cbind(data.frame(chromosome=seqnames(vcf)[hh], position=start(vcf)[hh]), do.call(cbind, probs_collapsed))
+	return(probs_collapsed)
+}
+
 #' Compute possible Mutation copy number states
 #' @param bb Copy number with consensus annotation meta data
 #' @param clusters 
@@ -281,6 +307,7 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 	
 	boundaryHits <- countOverlaps(vcf, unique(bb)) > 1 # indels overlapping with CN boundaries
 	
+	all_mult_probs = list() # save multiplicity probabilities for each mutation
 	for(globalIt in 1:2){ # 2 iterations, fist local (ie per segment) fit, then global
 		for( i in which( (diff(c(-1, h)) !=0 | is.na(diff(c(-1, h)) !=0) ) & ! boundaryHits )){
 			if(!i %in% names(majorCN)) next
@@ -420,6 +447,12 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 				D[hh,"pMutCNTail"] <- sapply(seq_along(w), function(i) pMutCNTail[i,w[i]])
 				D[hh,"altCount"] <- altCount[hh]
 				D[hh,"wtCount"] <- tumDepth[hh] - altCount[hh]
+				
+				# save multiplicity probabilities
+				if (globalIt==1) { # only need to do this once
+					all_mult_probs[[length(all_mult_probs)+1]] = get_multiplicity_probs(vcf, hh, cnStates, P.sm.x)
+				}
+
 			}		
 		}
 		if(globalIt==1){
@@ -434,7 +467,7 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 			}
 		}
 	}
-	return(list(D=D, P=P, power.c=power.c))
+	return(list(D=D, P=P, power.c=power.c, multiplicity_probabilities=all_mult_probs))
 }
 
 #' Compute mutation time from copy number gains and point mutations

@@ -210,7 +210,10 @@ defineMcnStates <- function(cn, clusters, purity, gender='female', isWgd= FALSE,
 		
 		# State probabilities - based on cell fractions
 		cfi.s <- unique(cfi)
-		pi.s <- sapply(cfi.s, function(p) ifelse(min(abs(clusters$proportion - p)) < deltaFreq, clusters$n_ssms[which.min(abs(clusters$proportion - p))], 1))
+		cl <- clusters$n_ssms
+		cl <- cl / ( majcni[1] + mincni[1])
+		cl[1] <- cl[1] / ( (majcni[1]>0) + (mincni[1]>0)) * ( majcni[1] + mincni[1] )
+		pi.s <- sapply(cfi.s, function(p) ifelse(min(abs(clusters$proportion - p)) < deltaFreq, cl[which.min(abs(clusters$proportion - p))], 1))
 		pi.s <- pi.s/sum(pi.s)
 		
 		c.to.s <- sapply(cfi.s, function(p) ifelse(min(abs(clusters$proportion - p)) < deltaFreq, which.min(abs(clusters$proportion - p)), NA)) # map to cluster
@@ -297,7 +300,10 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 					
 					# State probabilities - based on cell fractions
 					cfi.s <- unique(cnStates[,"cfi"])
-					pi.s <- sapply(cfi.s, function(p) ifelse(min(abs(clusters$proportion - p)) < deltaFreq, clusters$n_ssms[which.min(abs(clusters$proportion - p))], 1))
+					cl <- clusters$n_ssms
+					cl <- cl / ( cnStates[1,"majCN"] + cnStates[1,"minCN"])
+					cl[1] <- cl[1] / ((cnStates[1,"majCN"]>0) + (cnStates[1,"minCN"]>0)) * ( cnStates[1,"majCN"] + cnStates[1,"minCN"] )
+					pi.s <- sapply(cfi.s, function(p) ifelse(min(abs(clusters$proportion - p)) < deltaFreq, cl[which.min(abs(clusters$proportion - p))], 1))
 					pi.s <- pi.s/sum(pi.s)
 					
 					c.to.s <- sapply(cfi.s, function(p) ifelse(min(abs(clusters$proportion - p)) < deltaFreq, which.min(abs(clusters$proportion - p)), NA)) # map to cluster

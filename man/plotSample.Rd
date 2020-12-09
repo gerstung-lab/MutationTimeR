@@ -7,30 +7,30 @@
 plotSample(
   vcf,
   cn,
-  sv = NA,
+  sv = NULL,
   title = "",
   regions = NULL,
-  ylim.bb = c(0, 5),
+  ylim.cn = c(0, 5),
   layout.height = c(4, 1.2, 3.5),
-  y1 = ylim.bb[2] - 1
+  y.sv = ylim.cn[2] - 1
 )
 }
 \arguments{
 \item{vcf}{The `VCF` file to plot, with timing information added}
 
-\item{cn}{}
+\item{cn}{The copy number `GRanges` object}
 
-\item{sv}{}
+\item{sv}{Optional structural variants information.}
 
-\item{title}{}
+\item{title}{The titel of the plot. Default = "".}
 
-\item{regions}{}
+\item{regions}{The region to show as a `GRanges` object. Default is to show all chromosomes.}
 
-\item{ylim.bb}{}
+\item{ylim.cn}{The y-limits for the copy number stacked bar plot.}
 
-\item{layout.height}{}
+\item{layout.height}{The relative proportions of the layout.}
 
-\item{y1}{}
+\item{y.sv}{Where to plot arches for SVs.}
 }
 \description{
 Plot timing

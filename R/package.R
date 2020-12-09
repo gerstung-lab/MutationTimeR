@@ -14,8 +14,7 @@ NA
 #' Reference lengths for hg37d5
 #' 
 #' @docType data
-#' @examples data(HIVmix)
-#' data(refLengths)
+#' @examples data(refLengths)
 #' refLengths
 #' @name refLengths
 NA

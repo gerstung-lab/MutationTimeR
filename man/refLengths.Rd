@@ -8,7 +8,6 @@
 Reference lengths for hg37d5
 }
 \examples{
-data(HIVmix)
 data(refLengths)
 refLengths
 }

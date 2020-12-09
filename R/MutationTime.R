@@ -82,17 +82,40 @@ mergeClusters <- function(clusters, deltaFreq=0.05){
 			))
 }
 
-#' Compute possible Mutation copy number states
-#' @param cn Copy number with consensus annotation meta data
-#' @param clusters 
-#' @param purity 
-#' @param gender 
-#' @param isWgd 
-#' @param deltaFreq
-#' @return list of length nrow(bb), can be added to mcols(bb)
+#' Extract the average ploidy from copy number
+#' @param cn The `GRanges` copy number data
+#' @return The numeric value of average ploidy across the genome. 
+#' 
+#' @author Moritz Gerstung
+#' @export
+getPloidy <- function(cn) {
+	c <- if(!is.null(cn$copy_number)) cn$copy_number else cn$total_cn
+	sum(width(cn) * c * cn$clonal_frequency, na.rm=TRUE) / sum(width(cn) * cn$clonal_frequency, na.rm=TRUE)
+}
+
+#' Extract the average homozygousity from copy number
+#' @param cn The `GRanges` copy number data
+#' @return The numeric value of average homozygousity across the genome. 
+#' 
+#' @author Moritz Gerstung
+#' @export
+getHomozygousity <- function(cn){
+	sum(width(cn) * (cn$minor_cn == 0) * cn$clonal_frequency, na.rm=TRUE) / sum(width(cn) * cn$clonal_frequency, na.rm=TRUE)
+}
+
+.classWgd <- function(ploidy, hom) 2.9 -2*hom <= ploidy ## Heuristic developed in PCAWG-11
+
+#' Heuristic to classify WGD based on CN profile
+#' 
+#' The heuristic calculates the genome-wide average ploidy (ie total copy number) and also average homozygousity. Whole genome duplicated tumours
+#' were found to have a ploidy in excess of 2.9 - 2 * homozygousity.
+#' @param cn Copy number with consensus annotation meta data.
+#' @return FALSE/TRUE
 #' 
 #' @author mg14
 #' @export
+classWgd <- function(cn) .classWgd(getPloidy(cn), getHomozygousity(cn))
+
 defineMcnStates <- function(cn, clusters, purity, gender='female', isWgd= FALSE, deltaFreq=0.05){
 	P <- vector(mode='list', length(cn))
 	uniqueBB <- unique(cn)
@@ -233,22 +256,6 @@ defineMcnStates <- function(cn, clusters, purity, gender='female', isWgd= FALSE,
 } 
 
 
-#' Compute timing parameters
-#' @param vcf A vcf object of ssnms. See VariantAnnotation::readVcf()
-#' @param bb The copy number as a GRanges() object, meta data in consensus format. See loadBB()
-#' @param clusters A data.frame with the cluster proportion and n_ssms
-#' @param purity The purity of the samples
-#' @param gender 'male' or 'female'
-#' @param isWgd TRUE/FALSE 
-#' @param xmin min read support. Needed for power calculations
-#' @param rho Dispersion parameter
-#' @param n.boot Number of bootstrap samples for confidence intervals.
-#' @param deltaFreq The difference between subclonal SNV and CN states within which they'd be merged
-#' @return A list with elements (D: Annotated Data.Frame, can be added to vcf object; P: Timing parameters to be added to CN Ranges; power.c power of each cluster).
-#' @example inst/example/example.R
-#' 
-#' @author mg14
-#' @export
 computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(bb$clonal_frequency,na.rm=TRUE), n_ssms=100), purity=max(bb$clonal_frequency,na.rm=TRUE), gender='female', isWgd= FALSE, xmin=3, rho=0, n.boot=200, deltaFreq=0.05){
 	n <- nrow(vcf)
 	D <- DataFrame(MutCN=rep(NA,n), MutDeltaCN=rep(NA,n), MajCN=rep(NA,n), MinCN=rep(NA,n), MajDerCN=rep(NA,n), MinDerCN=rep(NA,n), CNF=rep(NA,n), CNID =as(vector("list", n),"List"), pMutCN=rep(NA,n), pGain=rep(NA,n),pSingle=rep(NA,n),pSub=rep(NA,n), pAllSubclones=as(vector(mode="list",n),"List"), pMutCNTail=rep(NA,n))	
@@ -445,20 +452,26 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 }
 
 #' Compute mutation time from copy number gains and point mutations
-#' @param vcf A vcf object of ssnms. See VariantAnnotation::readVcf()
-#' @param cn The copy number as a GRanges() object, meta data in consensus format. See loadBB()
-#' @param clusters A data.frame with the cluster proportion and n_ssms
-#' @param purity The purity of the samples
-#' @param gender 'male' or 'female'
-#' @param isWgd TRUE/FALSE 
-#' @param xmin min read support. Needed for power calculations
-#' @param rho Dispersion parameter
+#' @param vcf A vcf object of simple somatic mutations (SNV/MNV/indels) in PCAWG format with `info()` columns `t_ref_count` and `t_alt_count` storing the allele counts of reference and alternative (mutated) sequence. See VariantAnnotation::readVcf()
+#' @param cn The copy number as a GRanges() object, meta data in PCAWG consensus format. 
+#' This includes the extrac columns `major_cn` for major allele copy number, `minor_cn` for the minor allel copy number (both integers), as well as `clonal_frequency`, which should be 
+#' the tumour purity. For subclonal copy number changes, two regions with identical coordinate and `clonal_frequency_1 + clonal_frequency_2 = purity` are supplied. See loadBB()
+#' @param clusters A `data.frame` with information about known subclonal mutation clusters. The parameters are `cluster` identifier `proportion` (a fraction of purity) and `n_ssms` being the number of mutations assigned to each cluster, which serves as a prior. 
+#' The default assumes a single subclonal cluster at about 50% of cancer cell fraction contributing 10% of mutations. This roughly
+#' agrees with general observations, but a more bespoke analysis is recommented. Set to clusters = data.frame(cluster=1, proportion=max(cn$clonal_frequency,na.rm=TRUE), n_ssms=100) for a purely
+#' clonal treatment.
+#' @param purity The purity of the samples. Note that purity should match the values in `cn` and `clusters`.
+#' @param gender 'male' or 'female' (default). This is needed to establish the normal sex chromosom configuration.
+#' @param isWgd TRUE/FALSE. Whether the tumour is whole genome duplicated. The default uses classWgd(cn). WGD status changes the rules of timing subclonal copy number states such as a mixture of 1:2 and 2:2. In the case of WGD the latter would be considered to be ancestral, otherwise the former. 
+#' @param xmin The minimal read support. Needed for power calculations. Default `xmin=2`.
+#' @param rho Dispersion parameter for the beta-binomial model of mutant read count. Default `rho=0`
+#' @param n.boot The number of bootstrap samples for confidence interval estimation. Defaul `n.boot=200`.
 #' @return A list with elements (V: Data.Frame with variant-specific timing information, can be added to vcf object; T: DataFrame with timing information to be added to CN Ranges; power.c power of each cluster).
 #' @example inst/example/example.R
-#' 
+#'  
 #' @author mg14
 #' @export
-mutationTime <- function(vcf, cn, clusters=data.frame(cluster=1, proportion=max(cn$clonal_frequency,na.rm=TRUE), n_ssms=100), purity=max(cn$clonal_frequency,na.rm=TRUE), gender='female', isWgd= FALSE, xmin=3, rho=0, n.boot=200){
+mutationTime <- function(vcf, cn, clusters=data.frame(cluster=1:2, proportion=max(cn$clonal_frequency,na.rm=TRUE)*c(1,0.5), n_ssms=c(90,10)), purity=max(cn$clonal_frequency,na.rm=TRUE), gender='female', isWgd=classWgd(cn), xmin=3, rho=0, n.boot=200){
 	MT <- computeMutCn(vcf, cn, clusters, purity, gender, isWgd, xmin, rho, n.boot)
 	MT$D$CLS <- classifyMutations(as.data.frame(MT$D))
 	n.snv_mnv <- countOverlaps(cn,vcf)
@@ -468,11 +481,10 @@ mutationTime <- function(vcf, cn, clusters=data.frame(cluster=1, proportion=max(
 }
 
 
-#' Return header elements
-#' @return DataFrame() to be added to VCF header
-#' 
-#' @author mg14
-#' @export
+# Return header elements
+# @return DataFrame() to be added to VCF header
+# 
+# @author mg14
 mtHeader <- function() {
 	DataFrame(Number=c(1,1,1,1,1,1,1,1,".",1,1,1,1,".",1),Type=c("Float","Float","Integer","Integer","Integer","Integer","Float","Float","Integer","Float","Float","Float","Float","String","String"), 
 			Description=c("Mutation copy number","Change in MutCN between ancestral and derived state","Major copy number (ancestral)","Minor copy number (ancestral)","Major copy number (derived)","Minor copy number (derived)","Copy number frequency (relative to all cancer cells)", "MutCN probability","BB segment ids","Posterior prob: Early clonal","Posterior prob: Late clonal","Posterior prob: Subclonal", "Tail prob of mixture model", "Assignment probability of mutation to subclone","Mutation Time {clonal [early], clonal [late], clonal [NA], subclonal} - MAP assignments"),
@@ -485,11 +497,17 @@ mcnHeader <- function() {
 			row.names=c("MutCN","MutDeltaCN","MajCN","MinCN","MajDerCN","MinDerCN","CNF","pMutCN","CNID","pGain","pSingle","pSub","pMutCNTail","pAllSubclones"))
 }
 
-addMutCn <- function(vcf, bb=allBB[[meta(header(vcf))["ID",]]], clusters=allClusters[[meta(header(vcf))["ID",]]]){
-  MCN = computeMutCn(vcf, bb, clusters)
+#' Add mutation timing information to vcf object
+#' @param vcf The original `VCF`
+#' @param V The `DataFrame` with timing information from mutationTime
+#' @return The combined vcf with updated header.
+#' 
+#' @author Moritz Gerstung
+#' @export
+addMutTime <- function(vcf, V){
 	i = info(header(vcf))
 	info(header(vcf)) <- rbind(i, mtHeader())
-	info(vcf) <- cbind(info(vcf), MCN$D)
+	info(vcf) <- cbind(info(vcf), V)
 	return(vcf)
 }
 
@@ -761,14 +779,6 @@ piToTime <- function(timing_param, type=c("Mono-allelic Gain","CN-LOH", "Bi-alle
 	return(c(t[1,],`.2nd`=t[2,])) ## Linearise
 }
 
-#' Convert timing parameters into timing estimates
-#' @param cn Copy number input
-#' @param timing_param 
-#' @param pseudo.count 
-#' @return data.frame()
-#' 
-#' @author mg14
-#' @export
 mtToTime <- function(cn, timing_param = cn$timing_param, n.snv_mnv = cn$n.snv_mnv, pseudo.count=5){
 	sub <- duplicated(cn) 
 	covrg <- countQueryHits(findOverlaps(cn, cn)) 
@@ -800,14 +810,14 @@ mtToTime <- function(cn, timing_param = cn$timing_param, n.snv_mnv = cn$n.snv_mn
 	return(res)
 }
 
-averagePloidy <- function(bb) {
+getPloidy <- function(bb) {
 	c <- if(!is.null(bb$copy_number)) bb$copy_number else bb$total_cn
 	sum(width(bb) * c * bb$clonal_frequency, na.rm=TRUE) / sum(width(bb) * bb$clonal_frequency, na.rm=TRUE)
 }
 
 #' @importFrom VGAM rbetabinom
 simulateMutations <- function(cn, purity=max(cn$clonal_frequency, na.rm=TRUE),  n=40, rho=0.01, xmin=3){
-	g <- (averagePloidy(cn)*purity + 2*(1-purity))
+	g <- (getPloidy(cn)*purity + 2*(1-purity))
 	V <- list(VRanges())#VRanges()
 	for(i in which(!duplicated(cn)))
 		if(cn$n.snv_mnv[i]>1 & !is.null( cn$timing_param[[i]]))try({
@@ -970,18 +980,18 @@ simulateMutations <- function(cn, purity=max(cn$clonal_frequency, na.rm=TRUE),  
 
 #' Plot timing
 #' @param vcf The `VCF` file to plot, with timing information added 
-#' @param cn 
-#' @param sv 
-#' @param title 
-#' @param regions 
-#' @param ylim.bb 
-#' @param layout.height 
-#' @param y1 
+#' @param cn The copy number `GRanges` object
+#' @param sv Optional structural variants information.
+#' @param title The titel of the plot. Default = "".
+#' @param regions The region to show as a `GRanges` object. Default is to show all chromosomes.
+#' @param ylim.cn The y-limits for the copy number stacked bar plot.
+#' @param layout.height The relative proportions of the layout.
+#' @param y.sv Where to plot arches for SVs.
 #' @return NULL
 #' 
 #' @author mg14
 #' @export
-plotSample <- function(vcf, cn, sv=NULL, title="", regions=NULL, ylim.bb=c(0,5), layout.height=c(4,1.2,3.5), y1=ylim.bb[2]-1) {
+plotSample <- function(vcf, cn, sv=NULL, title="", regions=NULL, ylim.cn=c(0,5), layout.height=c(4,1.2,3.5), y.sv=ylim.cn[2]-1) {
 	if(is.null(regions)) regions <- refLengths[1:24]
 	p <- par()
 	layout(matrix(1:3, ncol=1), height=layout.height)
@@ -990,11 +1000,11 @@ plotSample <- function(vcf, cn, sv=NULL, title="", regions=NULL, ylim.bb=c(0,5),
 	bbb <- cn[cn %over% regions]
 	.plotVcf(vcf[vcf %over% regions], bbb, legend=FALSE, col.grid='white',  xaxt=FALSE, cex=0.33, xlim=xlim)
 	mtext(line=-1, side=3, title, las=1)
-	.plotBB(bbb, ylim=ylim.bb, legend=FALSE, type='bar', col.grid='white', col=c("lightgrey", "darkgrey"), xaxt=FALSE, xlim=xlim)
+	.plotBB(bbb, ylim=ylim.cn, legend=FALSE, type='bar', col.grid='white', col=c("lightgrey", "darkgrey"), xaxt=FALSE, xlim=xlim)
 	tryCatch({
 				par(xpd=NA)
 				if(!is.null(sv))
-					.plotSv(sv, y1=y1, regions=regions, add=TRUE)
+					.plotSv(sv, y1=y.sv, regions=regions, add=TRUE)
 				par(xpd=FALSE)
 			}, error=function(x) warning(x))
 	par(mar=c(3,3,0.5,0.5))

@@ -7,32 +7,39 @@
 mutationTime(
   vcf,
   cn,
-  clusters = data.frame(cluster = 1, proportion = max(cn$clonal_frequency, na.rm =
-    TRUE), n_ssms = 100),
+  clusters = data.frame(cluster = 1:2, proportion = max(cn$clonal_frequency, na.rm =
+    TRUE) * c(1, 0.5), n_ssms = c(90, 10)),
   purity = max(cn$clonal_frequency, na.rm = TRUE),
   gender = "female",
-  isWgd = FALSE,
+  isWgd = classWgd(cn),
   xmin = 3,
   rho = 0,
   n.boot = 200
 )
 }
 \arguments{
-\item{vcf}{A vcf object of ssnms. See VariantAnnotation::readVcf()}
+\item{vcf}{A vcf object of simple somatic mutations (SNV/MNV/indels) in PCAWG format with `info()` columns `t_ref_count` and `t_alt_count` storing the allele counts of reference and alternative (mutated) sequence. See VariantAnnotation::readVcf()}
 
-\item{cn}{The copy number as a GRanges() object, meta data in consensus format. See loadBB()}
+\item{cn}{The copy number as a GRanges() object, meta data in PCAWG consensus format. 
+This includes the extrac columns `major_cn` for major allele copy number, `minor_cn` for the minor allel copy number (both integers), as well as `clonal_frequency`, which should be 
+the tumour purity. For subclonal copy number changes, two regions with identical coordinate and `clonal_frequency_1 + clonal_frequency_2 = purity` are supplied. See loadBB()}
 
-\item{clusters}{A data.frame with the cluster proportion and n_ssms}
+\item{clusters}{A `data.frame` with information about known subclonal mutation clusters. The parameters are `cluster` identifier `proportion` (a fraction of purity) and `n_ssms` being the number of mutations assigned to each cluster, which serves as a prior. 
+The default assumes a single subclonal cluster at about 50% of cancer cell fraction contributing 10% of mutations. This roughly
+agrees with general observations, but a more bespoke analysis is recommented. Set to clusters = data.frame(cluster=1, proportion=max(cn$clonal_frequency,na.rm=TRUE), n_ssms=100) for a purely
+clonal treatment.}
 
-\item{purity}{The purity of the samples}
+\item{purity}{The purity of the samples. Note that purity should match the values in `cn` and `clusters`.}
 
-\item{gender}{'male' or 'female'}
+\item{gender}{'male' or 'female' (default). This is needed to establish the normal sex chromosom configuration.}
 
-\item{isWgd}{TRUE/FALSE}
+\item{isWgd}{TRUE/FALSE. Whether the tumour is whole genome duplicated. The default uses classWgd(cn). WGD status changes the rules of timing subclonal copy number states such as a mixture of 1:2 and 2:2. In the case of WGD the latter would be considered to be ancestral, otherwise the former.}
 
-\item{xmin}{min read support. Needed for power calculations}
+\item{xmin}{The minimal read support. Needed for power calculations. Default `xmin=2`.}
 
-\item{rho}{Dispersion parameter}
+\item{rho}{Dispersion parameter for the beta-binomial model of mutant read count. Default `rho=0`}
+
+\item{n.boot}{The number of bootstrap samples for confidence interval estimation. Defaul `n.boot=200`.}
 }
 \value{
 A list with elements (V: Data.Frame with variant-specific timing information, can be added to vcf object; T: DataFrame with timing information to be added to CN Ranges; power.c power of each cluster).
@@ -41,24 +48,42 @@ A list with elements (V: Data.Frame with variant-specific timing information, ca
 Compute mutation time from copy number gains and point mutations
 }
 \examples{
+set.seed(42)
 cn <- MutationTimeR:::refLengths[1:23]
-cn$major_cn <- 3
-cn$minor_cn <- 1
-cn$clonal_frequency <- 0.8
-cn$timing_param <- MutationTimeR:::defineMcnStates(cn, purity=0.8, clusters=data.frame(cluster=1, proportion=0.8, n_ssms=100))
-for(i in seq_along(cn)){
-	cn$timing_param[[i]][,"P.m.sX"] <- c(0.6,0.1,0.3)
-	cn$timing_param[[i]][,"power.m.s"] <- rep(1,3)
+t1 <- 0.7
+purity <- 0.6
+clusters <- data.frame(cluster=1:3, proportion=c(purity,purity * 0.8, purity * 0.4), n_ssms=c(100,20, 50))
+time2pi <- function(N,n,t1,t2){
+	if(N==2 & n ==1)
+		pi <-  c(3-2*t1, t1)
+	else if(N==2 & n \%in\% c(0,2))
+		pi <- c(2 -2*t1, t1)
+	else pi <- 1
+	pi <- pi/sum(pi)
 }
-cn$n.snv_mnv <- width(MutationTimeR:::refLengths[1:23])/1e6
+cn$major_cn <- 2 #sample(1:2, 23, replace=TRUE)
+cn$minor_cn <- sample(0:2, 23, replace=TRUE)
+cn$clonal_frequency <- purity
+cn$timing_param <- MutationTimeR:::defineMcnStates(cn, purity=purity, clusters=clusters, deltaFreq = 0)
+for(i in seq_along(cn)){
+	pi <- time2pi(cn$major_cn[i], cn$minor_cn[i], t1, t2)
+	pi_sub <- clusters$n_ssms
+	pi_sub[1] <- pi_sub[1] * (t1*2 + (1-t1)*(cn$major_cn[i]+ cn$minor_cn[i])) / 2
+	pi_sub[-1] <- pi_sub[-1] * (cn$major_cn[i]+ cn$minor_cn[i]) / 2
+	pi_sub <- pi_sub/sum(pi_sub)
+	pi <- c(pi * pi_sub[1], pi_sub[-1])
+	cn$timing_param[[i]][,"P.m.sX"] <- pi
+	cn$timing_param[[i]][,"power.m.s"] <- rep(1, length(pi))
+}
+cn$n.snv_mnv <- width(MutationTimeR:::refLengths[1:23])/1e6 * 10
 
-vcf <- MutationTimeR:::simulateMutations(cn)
+vcf <- MutationTimeR:::simulateMutations(cn, rho=0.01, n=40)
 cn_timed <- cn[,c("major_cn","minor_cn","clonal_frequency")]
 
-mt <- mutationTime(vcf, cn_timed, n.boot=10)
+mt <- mutationTime(vcf, cn_timed, clusters=clusters, n.boot=10)
 mcols(cn_timed) <- cbind(mcols(cn_timed),mt$T)
 
-info(header(vcf)) <- rbind(info(header(vcf)),mtHeader())
+info(header(vcf)) <- rbind(info(header(vcf)),MutationTimeR:::mtHeader())
 info(vcf) <- cbind(info(vcf), mt$V)
 
 plotSample(vcf,cn_timed)

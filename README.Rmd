@@ -44,8 +44,7 @@ table(mt$V$CLS)
 Add this annotation to the vcf
 
 ```{R}
-info(header(vcf)) <- rbind(info(header(vcf)),mtHeader())
-info(vcf) <- cbind(info(vcf), mt$V)
+vcf <- addMutTime(vcf, mt$V)
 ```
 
 ## Timing of copy number gains

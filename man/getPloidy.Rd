@@ -2,19 +2,29 @@
 % Please edit documentation in R/MutationTime.R
 \name{getPloidy}
 \alias{getPloidy}
-\title{Get sample ploidy from VCF metadata}
+\title{Extract the average ploidy from copy number}
 \usage{
-getPloidy(vcf)
+getPloidy(bb)
+
+getPloidy(bb)
 }
 \arguments{
+\item{cn}{The `GRanges` copy number data}
+
 \item{VCF}{object to query}
 }
 \value{
+The numeric value of average ploidy across the genome.
+
 The sample ploidy, or NULL if the metadata entry is not available
 }
 \description{
+Extract the average ploidy from copy number
+
 Get sample ploidy from VCF metadata
 }
 \author{
+Moritz Gerstung
+
 sd11
 }

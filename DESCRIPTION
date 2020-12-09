@@ -1,7 +1,7 @@
 Package: MutationTimeR
 Type: Package
 Title: Timing somatic point mutations and copy number gains
-Version: 1.00.0
+Version: 1.00.1
 Date: 2020-12-09
 Author: Moritz Gerstung
 Maintainer: Moritz Gerstung <moritz.gerstung@ebi.ac.uk>

@@ -10,7 +10,10 @@ getTumorCounts <- function(vcf){
 #' @export
 getTumorDepth <- function(vcf){
 	if("t_alt_count" %in% colnames(info(vcf))){ ## consensus data, snv and indel
-		info(vcf)$t_alt_count + info(vcf)$t_ref_count
+		return(info(vcf)$t_alt_count + info(vcf)$t_ref_count)
+	}
+	if("DP" %in% names(geno(vcf))){ ## Mutect2
+		return(geno(vcf)$DP[,1])
 	}else{ ## older data
 		if("FAZ" %in% rownames(geno(header(vcf)))){
 			rowSums(getTumorCounts(vcf))
@@ -30,6 +33,9 @@ getTumorDepth <- function(vcf){
 getAltCount <- function(vcf){
 	if("t_alt_count" %in% colnames(info(vcf))){ ## consensus data, snv and indel
 		info(vcf)$t_alt_count
+	}
+	if("AD" %in% names(geno(vcf))){ ## Mutect2
+		return(geno(vcf)$AD[,1,2])
 	}else{ ## older formats
 		if("FAZ" %in% rownames(geno(header(vcf)))){ ## ie subs
 			c <- getTumorCounts(vcf)

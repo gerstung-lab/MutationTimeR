@@ -20,7 +20,7 @@ MutationTimeR requires a `vcf` object containing point mutations (SNVs, MNVs, or
 
 ```r
 library("MutationTimeR")
-#vcf <- readVcf("myvcf.vcf") # Point mutations, needs `info` columns t_alt_count t_ref_count
+#vcf <- readVcf("myvcf.vcf") # Point mutations, needs `geno` entries `AD` and `DP` or `info` columns t_alt_count t_ref_count.
 #bb <- GRanges(, major_cn= , minor_cn=, clonal_frequency=purity) # Copy number segments, needs columns  major_cn, minor_cn and clonal_frequency of each segment
 #clusters <- data.frame(cluster= , n_ssms=, proportion=) # Optional data.frame with subclonal cluster locations (VAF proportion) and size (number of variants n_ssms)
 ```
@@ -188,14 +188,14 @@ head(mt$T)
 ## 4 1:1:0.21259842519685:...,1:2:0.425196850393701:...,2:1:0.0905511811023622:...,...
 ## 5                                                    1:1:0.27:...,2:1:0.115:...,...
 ## 6                                                    1:1:0.27:...,2:1:0.115:...,...
-##                type              time           time.lo          time.up
-##            <factor>         <numeric>         <numeric>        <numeric>
-## 1                NA                NA                NA               NA
-## 2 Mono-allelic Gain                 1 0.400707412425697                1
-## 3 Mono-allelic Gain                NA                NA               NA
-## 4 Mono-allelic Gain 0.773534222763912 0.606944646520397 0.84170199852765
-## 5                NA                NA                NA               NA
-## 6                NA                NA                NA               NA
+##                type              time           time.lo           time.up
+##            <factor>         <numeric>         <numeric>         <numeric>
+## 1                NA                NA                NA                NA
+## 2 Mono-allelic Gain                 1 0.485179575172229                 1
+## 3 Mono-allelic Gain                NA                NA                NA
+## 4 Mono-allelic Gain 0.773534222763912 0.666501932404523 0.815455093388117
+## 5                NA                NA                NA                NA
+## 6                NA                NA                NA                NA
 ##    time.2nd time.2nd.lo time.2nd.up time.star n.snv_mnv
 ##   <numeric>   <numeric>   <numeric>  <factor> <integer>
 ## 1        NA          NA          NA        NA       148

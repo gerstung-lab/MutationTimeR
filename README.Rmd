@@ -18,7 +18,7 @@ MutationTimeR requires a `vcf` object containing point mutations (SNVs, MNVs, or
 
 ```{R}
 library("MutationTimeR")
-#vcf <- readVcf("myvcf.vcf") # Point mutations, needs `info` columns t_alt_count t_ref_count
+#vcf <- readVcf("myvcf.vcf") # Point mutations, needs `geno` entries `AD` and `DP` or `info` columns t_alt_count t_ref_count.
 #bb <- GRanges(, major_cn= , minor_cn=, clonal_frequency=purity) # Copy number segments, needs columns  major_cn, minor_cn and clonal_frequency of each segment
 #clusters <- data.frame(cluster= , n_ssms=, proportion=) # Optional data.frame with subclonal cluster locations (VAF proportion) and size (number of variants n_ssms)
 ```

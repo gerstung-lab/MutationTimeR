@@ -74,6 +74,21 @@ ptrbetabinom <- function(x, size, prob, rho, xmin=0) {
 	pmin <- pbetabinom(xmin-1, size, prob, rho)
 	pmax(0,(pbetabinom(x,size,prob,rho) - pmin) / (1-pmin))}
 
+# EM for P(m|s,X). Lw is the n x K likelihood with the fixed state weights folded in.
+# P.m.sX may be a K x B matrix with W an n x B matrix of row counts, so that B bootstrap
+# replicates are fitted at once.
+emMutCn <- function(Lw, P.m.sX, s.from.m, n.it, W=NULL, floor=0){
+	G <- crossprod(s.from.m) # sums over the states of each subclone
+	n <- if(is.null(W)) nrow(Lw) else sum(W[,1])
+	for(em.it in seq_len(n.it)){
+		R <- 1 / (Lw %*% P.m.sX) # 1/P(X_i)
+		if(!is.null(W)) R <- R * W
+		P.sm.X <- pmax(P.m.sX * crossprod(Lw, R) / n, floor) # P(s,m|X)
+		P.m.sX <- P.sm.X / (G %*% P.sm.X)
+	}
+	if(is.null(W)) drop(P.m.sX) else P.m.sX
+}
+
 
 mergeClusters <- function(clusters, deltaFreq=0.05){
 	if(nrow(clusters) <= 1) return(clusters)
@@ -276,6 +291,7 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 	# Match VCF and CN
 	overlaps <- findOverlaps(vcf, bb)
 	D[["CNID"]] <- as(overlaps, "List")
+	Dm <- as.matrix(D[,sapply(D, is.logical)]) + 0 # numeric results, copied into D at the end (DataFrame row assignment is slow)
 	majorCN <- split(bb$major_cn[subjectHits(overlaps)], queryHits(overlaps))
 	m <- bb$minor_cn #hack: minor_cn > 0 in male samples - Battenberg bug?
 	if(gender=='male')
@@ -346,16 +362,11 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 					}
 					
 					# EM algorithm (mixture fitting) for pi
-					P.m.sX <- cnStates[whichStates,"pi.m.s"]
 					s.from.m <- mm(cnStates[whichStates,"s"]) # indicator matrix to map
-					for(em.it in 1:100){
-						P.xsm <- L * rep(pi.s[cnStates[whichStates,"s"]] * P.m.sX / power.m.s / power.s[cnStates[whichStates,"s"]], each=nrow(L)) # P(X,s,m)
-						P.sm.x <- P.xsm/rowSums(P.xsm) # P(s,m|Xi)
-						P.sm.X <- pmax(.Machine$double.xmin,colMeans(P.sm.x)) # P(s,m|X) / piState[cnStates[1:k,"state"]] / cnStates[1:k,"pi.m.s"]
-						if(em.it==100) break
-						P.s.X <- s.from.m %*% P.sm.X 
-						P.m.sX <- P.sm.X / P.s.X[cnStates[whichStates,"s"]]
-					}
+					w.sm <- pi.s[cnStates[whichStates,"s"]] / power.m.s / power.s[cnStates[whichStates,"s"]] # fixed state weights
+					P.m.sX <- emMutCn(L * rep(w.sm, each=nrow(L)), cnStates[whichStates,"pi.m.s"], s.from.m, n.it=99, floor=.Machine$double.xmin)
+					P.xsm <- L * rep(w.sm * P.m.sX, each=nrow(L)) # P(X,s,m)
+					P.sm.x <- P.xsm/rowSums(P.xsm) # P(s,m|Xi)
 					
 					toTime <- function(cnStates, P.m.sX, s.m) {
 						mAnc <- cnStates[,"m"] - cnStates[,"minDelta"] - cnStates[,"majDelta"]
@@ -375,19 +386,11 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 					
 					# Bootstrapping for CIs
 					if(globalIt==2){
-						b.m.sX <- if(n.boot>0) sapply(1:n.boot, function(foo){
-												L <- rbind(L, rep(1e-3, each=ncol(L))) #add an uniformative row
-												L <- L[sample(1:nrow(L), replace=TRUE),,drop=FALSE]
-												P.m.sX <- cnStates[whichStates,"pi.m.s"]
-												for(em.it in 1:50){
-													P.xsm <- L * rep(pi.s[cnStates[whichStates,"s"]] * P.m.sX / power.m.s / power.s[cnStates[whichStates,"s"]], each=nrow(L)) # P(X,s,m)
-													P.sm.x <- P.xsm/rowSums(P.xsm) # P(s,m|Xi)
-													P.sm.X <- colMeans(P.sm.x) # P(s,m|X) / piState[cnStates[1:k,"state"]] / cnStates[1:k,"pi.m.s"]
-													P.s.X <- s.from.m %*% P.sm.X 
-													P.m.sX <- P.sm.X / P.s.X[cnStates[whichStates,"s"]]
-												}
-												return(P.m.sX)
-											}) else NA
+						b.m.sX <- if(n.boot>0) {
+									L1 <- rbind(L, 1e-3) #add an uniformative row
+									W <- vapply(1:n.boot, function(foo) tabulate(sample(1:nrow(L1), replace=TRUE), nrow(L1)), numeric(nrow(L1))) # resampled row counts
+									emMutCn(L1 * rep(w.sm, each=nrow(L1)), matrix(cnStates[whichStates,"pi.m.s"], ncol=n.boot, nrow=length(whichStates)), s.from.m, n.it=50, W=W)
+								} else NA
 						if(n.boot>0) try({
 										CI.m.sX <- apply(b.m.sX, 1, quantile, c(0.025, 0.975))
 										cnStates[,"P.m.sX.lo"] <- CI.m.sX[1,] 
@@ -420,30 +423,30 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 				w <- apply(P.sm.x, 1, function(x) if(any(is.na(x))) NA else which.max(x) )
 				if(all(is.na(w))) next
 				
-				D[hh, "pSub"] <- rowSums(P.sm.x[, !cnStates[,"clonalFlag"], drop=FALSE])
-				D[hh, "pGain"] <- rowSums(P.sm.x[, cnStates[,"clonalFlag"] & cnStates[,"m"] > 1.00001 + cnStates[,"majDelta"] + cnStates[,"minDelta"], drop=FALSE])
+				Dm[hh, "pSub"] <- rowSums(P.sm.x[, !cnStates[,"clonalFlag"], drop=FALSE])
+				Dm[hh, "pGain"] <- rowSums(P.sm.x[, cnStates[,"clonalFlag"] & cnStates[,"m"] > 1.00001 + cnStates[,"majDelta"] + cnStates[,"minDelta"], drop=FALSE])
 				#D[hh, "pSingle"] <- rowSums(P.sm.x[, cnStates[1:k,"state"] %in% which(clonalFlag) & cnStates[1:k,"m"]<=1, drop=FALSE])
-				D[hh, "pSingle"] <-  1 - D[hh, "pSub"] - D[hh, "pGain"]			
+				Dm[hh, "pSingle"] <-  1 - Dm[hh, "pSub"] - Dm[hh, "pGain"]			
 
 				#currently doesn't work
 				#D[hh,"pAllSubclones"] <- as(DataFrame(t(P.sm.x[, !cnStates[,"clonalFlag"], drop=FALSE])),"List")
 				
-				D[hh,"MutCN"]  <- cnStates[w,"m"]
-				D[hh,"MutDeltaCN"]  <- cnStates[w,"majDelta"] + cnStates[w,"minDelta"]
-				D[hh,"MinCN"] <- cnStates[w,"minCNanc"]
-				D[hh,"MajCN"] <- cnStates[w,"majCNanc"]
-				D[hh,"MinDerCN"] <- cnStates[w,"minCNder"]
-				D[hh,"MajDerCN"] <- cnStates[w,"majCNder"]
+				Dm[hh,"MutCN"]  <- cnStates[w,"m"]
+				Dm[hh,"MutDeltaCN"]  <- cnStates[w,"majDelta"] + cnStates[w,"minDelta"]
+				Dm[hh,"MinCN"] <- cnStates[w,"minCNanc"]
+				Dm[hh,"MajCN"] <- cnStates[w,"majCNanc"]
+				Dm[hh,"MinDerCN"] <- cnStates[w,"minCNder"]
+				Dm[hh,"MajDerCN"] <- cnStates[w,"majCNder"]
 				
-				D[hh,"CNF"]  <- cnStates[w,"cfi"]
-				D[hh,"pMutCN"] <- sapply(seq_along(w), function(i) P.sm.x[i,w[i]])
-				D[hh,"pMutCNTail"] <- sapply(seq_along(w), function(i) pMutCNTail[i,w[i]])
+				Dm[hh,"CNF"]  <- cnStates[w,"cfi"]
+				Dm[hh,"pMutCN"] <- sapply(seq_along(w), function(i) P.sm.x[i,w[i]])
+				Dm[hh,"pMutCNTail"] <- sapply(seq_along(w), function(i) pMutCNTail[i,w[i]])
 				#D[hh,"altCount"] <- altCount[hh]
 				#D[hh,"wtCount"] <- tumDepth[hh] - altCount[hh]
 			}		
 		}
 		if(globalIt==1){
-			power.c <- power.c / sum(!is.na(D[,"pSub"]))
+			power.c <- power.c / sum(!is.na(Dm[,"pSub"]))
 			if(any(is.na(power.c) | power.c==0)) {
 				break # Cancel 2nd iteration
 				warning("Power calculation yielded NA, aborting.")
@@ -454,6 +457,7 @@ computeMutCn <- function(vcf, bb, clusters=data.frame(cluster=1, proportion=max(
 			}
 		}
 	}
+	for(k in colnames(Dm)) D[[k]] <- Dm[,k]
 	return(list(D=D, P=P, power.c=power.c))
 }
 
